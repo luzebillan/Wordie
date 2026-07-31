@@ -113,6 +113,23 @@ initDB()
 ipcMain.handle('create-card', (_, card) => dbHandlers.createCard(card))
 ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
+ipcMain.handle('get-settings', () => dbHandlers.getSettings())
+ipcMain.handle('save-settings', (_, settings) => dbHandlers.saveSettings(settings))
+ipcMain.handle('validate-sketch-engine', async (_, { url, apiKey }) => {
+  try {
+    // Basic ping to Sketch Engine corpus info endpoint
+    const targetUrl = url || 'https://api.sketchengine.eu/bonito/run.cgi'
+    const res = await fetch(`${targetUrl}/corp_info?corpname=preloaded/ententen15_tt21&format=json`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    })
+    if (res.ok) {
+      return { success: true }
+    }
+    return { success: false, error: res.statusText }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+})
 
 ipcMain.handle('ping', () => 'pong')
 

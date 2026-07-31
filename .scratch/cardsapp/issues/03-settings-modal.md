@@ -4,10 +4,10 @@
 
 **Blocked by:** 02-database-setup
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Create Settings UI Modal.
-- [ ] Implement Secure storage/DB storage for these settings.
-- [ ] Implement network fetch (Ping) for Sketch Engine to validate key.
-- [ ] Display `Until [Date]` validity dynamically.
-- [ ] Provide a [Test Connection] button for AI settings.
+- [x] Create Settings UI Modal.
+- [x] Implement Secure storage/DB storage for these settings.
+- [x] Implement network fetch (Ping) for Sketch Engine to validate key.
+- [x] Display `Until [Date]` validity dynamically.
+- [x] Provide a [Test Connection] button for AI settings.

@@ -25,6 +25,13 @@ export function initDB() {
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `)
 }
 
 // IPC Handlers implementation for DB operations
@@ -52,6 +59,26 @@ export const dbHandlers = {
   deleteCard: (id: number) => {
     const stmt = db.prepare('DELETE FROM cards WHERE id = ?')
     stmt.run(id)
+    return { success: true }
+  },
+  
+  getSettings: () => {
+    const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string, value: string }[]
+    const settings: Record<string, string> = {}
+    rows.forEach(row => {
+      settings[row.key] = row.value
+    })
+    return settings
+  },
+  
+  saveSettings: (settings: Record<string, string>) => {
+    const insert = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (@key, @value)')
+    const transaction = db.transaction((settingsObj) => {
+      for (const [key, value] of Object.entries(settingsObj)) {
+        insert.run({ key, value: String(value) })
+      }
+    })
+    transaction(settings)
     return { success: true }
   }
 }

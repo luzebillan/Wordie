@@ -22,7 +22,12 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   // Database APIs
   createCard: (card: any) => ipcRenderer.invoke('create-card', card),
   getCards: () => ipcRenderer.invoke('get-cards'),
-  deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id)
+  deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
+  
+  // Settings APIs
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('save-settings', settings),
+  validateSketchEngine: (url: string, apiKey: string) => ipcRenderer.invoke('validate-sketch-engine', { url, apiKey })
 
   // You can expose other APTs you need here.
   // ...

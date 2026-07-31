@@ -3,9 +3,11 @@ import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
 import './App.css'
+import { SettingsModal } from './components/SettingsModal'
 
 function App() {
   const [count, setCount] = useState(0)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   return (
     <>
@@ -63,8 +65,21 @@ function App() {
           >
             Fetch Cards
           </button>
+          
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded shadow"
+          >
+            ⚙️ Settings
+          </button>
         </div>
       </section>
+
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+      />
 
       <div className="ticks"></div>
 
