@@ -41,7 +41,7 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
   }, [onFinish])
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-white dark:bg-[#16171d] animate-in fade-in duration-500">
+    <div className="flex flex-col items-center justify-center h-full bg-white dark:bg-[#16171d] animate-in fade-in duration-500">
       <div className="flex items-center gap-4 animate-bounce-slow">
         <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-600 to-indigo-500 bg-clip-text text-transparent mb-0">
           CardsApp

@@ -8,7 +8,7 @@ export const Dashboard: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-[#111216] overflow-hidden w-full text-left">
+    <div className="flex h-full bg-gray-50 dark:bg-[#111216] w-full text-left">
       <Sidebar 
         currentView={currentView}
         onNavigate={setCurrentView}

@@ -46,8 +46,10 @@ const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
 async function createWindow() {
   win = new BrowserWindow({
-    title: 'Main window',
+    title: 'CardsApp',
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
+    frame: false,
+    transparent: true,
     webPreferences: {
       preload,
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
@@ -157,6 +159,24 @@ ipcMain.handle('validate-ai-api', async (_, { url, apiKey, model }) => {
   } catch (err: any) {
     return { success: false, error: err.message }
   }
+})
+
+ipcMain.handle('window-minimize', () => {
+  const allWindows = BrowserWindow.getAllWindows()
+  if (allWindows.length) allWindows[0].minimize()
+})
+
+ipcMain.handle('window-maximize', () => {
+  const allWindows = BrowserWindow.getAllWindows()
+  if (allWindows.length) {
+    if (allWindows[0].isMaximized()) allWindows[0].unmaximize()
+    else allWindows[0].maximize()
+  }
+})
+
+ipcMain.handle('window-close', () => {
+  const allWindows = BrowserWindow.getAllWindows()
+  if (allWindows.length) allWindows[0].close()
 })
 
 ipcMain.handle('ping', () => 'pong')
