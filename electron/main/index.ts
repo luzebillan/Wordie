@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { update } from './update'
 import { initDB, dbHandlers } from './db'
+import { generateUsefulExpression } from './ai'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -139,6 +140,10 @@ ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
 ipcMain.handle('get-settings', () => dbHandlers.getSettings())
 ipcMain.handle('save-settings', (_, settings) => dbHandlers.saveSettings(settings))
 ipcMain.handle('get-stats', () => dbHandlers.getStats())
+ipcMain.handle('check-duplicate-card', (_, expression) => dbHandlers.checkDuplicateCard(expression))
+ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
+ipcMain.handle('generate-useful-expression', (_, { expression, context, style }) => generateUsefulExpression(expression, context, style))
+
 ipcMain.handle('validate-sketch-engine', async (_, { url, apiKey }) => {
   try {
     // Basic ping to Sketch Engine corpus info endpoint

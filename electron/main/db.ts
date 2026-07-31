@@ -114,5 +114,18 @@ export const dbHandlers = {
       retentionRate: Math.round(retentionRate),
       cardsToReview: toReviewCount
     }
+  },
+
+  checkDuplicateCard: (expression: string) => {
+    if (!expression || expression.trim() === '') return []
+    // Search for cards of type 'Useful Expression' where the front matches the expression
+    const stmt = db.prepare(`SELECT * FROM cards WHERE type = 'Useful Expression' AND front LIKE ? ORDER BY useCount DESC LIMIT 3`)
+    return stmt.all(`%${expression.trim()}%`)
+  },
+
+  incrementUseCount: (id: number) => {
+    const stmt = db.prepare(`UPDATE cards SET useCount = useCount + 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
+    stmt.run(id)
+    return { success: true }
   }
 }

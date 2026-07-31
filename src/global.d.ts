@@ -4,6 +4,9 @@ interface Window {
     getCards: () => Promise<any[]>
     deleteCard: (id: number) => Promise<{ success: boolean }>
     getStats: () => Promise<{ cardsReviewed: number, retentionRate: number, cardsToReview: number }>
+    checkDuplicateCard: (expression: string) => Promise<any[]>
+    incrementUseCount: (id: number) => Promise<{ success: boolean }>
+    generateUsefulExpression: (expression: string, context: string, style: string) => Promise<{ success: boolean; data?: any; error?: string }>
     getSettings: () => Promise<Record<string, string>>
     saveSettings: (settings: Record<string, string>) => Promise<{ success: boolean }>
     validateSketchEngine: (url: string, apiKey: string) => Promise<{ success: boolean; error?: string }>

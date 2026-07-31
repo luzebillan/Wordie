@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Sidebar } from '../components/Sidebar'
 import { SettingsModal } from '../components/SettingsModal'
+import { UsefulExpressions } from '../components/UsefulExpressions'
 
 export const Dashboard: React.FC = () => {
   const [currentView, setCurrentView] = useState('new-cards')
@@ -27,9 +28,13 @@ export const Dashboard: React.FC = () => {
         </header>
 
         {/* View Content Placeholder */}
-        <div className="bg-white/60 dark:bg-black/30 backdrop-blur-md rounded-2xl border border-white/40 dark:border-white/10 p-8 min-h-[400px] flex items-center justify-center text-gray-400">
-          <p>Content for {currentView} goes here.</p>
-        </div>
+        {currentView === 'new-cards' ? (
+          <UsefulExpressions />
+        ) : (
+          <div className="bg-white/60 dark:bg-black/30 backdrop-blur-md rounded-2xl border border-white/40 dark:border-white/10 p-8 min-h-[400px] flex items-center justify-center text-gray-400">
+            <p>Content for {currentView} goes here.</p>
+          </div>
+        )}
       </main>
 
       <SettingsModal 

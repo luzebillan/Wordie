@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   getCards: () => ipcRenderer.invoke('get-cards'),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
   getStats: () => ipcRenderer.invoke('get-stats'),
+  checkDuplicateCard: (expression: string) => ipcRenderer.invoke('check-duplicate-card', expression),
+  incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
+  generateUsefulExpression: (expression: string, context: string, style: string) => 
+    ipcRenderer.invoke('generate-useful-expression', { expression, context, style }),
   
   // Settings APIs
   getSettings: () => ipcRenderer.invoke('get-settings'),
