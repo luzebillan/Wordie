@@ -32,6 +32,17 @@ export function initDB() {
       value TEXT NOT NULL
     )
   `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS review_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cardId INTEGER NOT NULL,
+      isCorrect BOOLEAN NOT NULL,
+      isFirstTry BOOLEAN NOT NULL,
+      reviewDate TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(cardId) REFERENCES cards(id) ON DELETE CASCADE
+    )
+  `)
 }
 
 // IPC Handlers implementation for DB operations
@@ -80,5 +91,28 @@ export const dbHandlers = {
     })
     transaction(settings)
     return { success: true }
+  },
+  
+  getStats: () => {
+    const today = new Date().toISOString().split('T')[0]
+    
+    // Cards Reviewed Today
+    const reviewedCountStmt = db.prepare(`SELECT COUNT(DISTINCT cardId) as count FROM review_logs WHERE date(reviewDate) = ?`)
+    const reviewedCount = (reviewedCountStmt.get(today) as any).count
+    
+    // Retention Rate Today (first try correct / total first tries today)
+    const firstTriesStmt = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) as correct FROM review_logs WHERE date(reviewDate) = ? AND isFirstTry = 1`)
+    const firstTriesData = firstTriesStmt.get(today) as any
+    const retentionRate = firstTriesData.total > 0 ? (firstTriesData.correct / firstTriesData.total) * 100 : 0
+    
+    // Cards To Review Today
+    const toReviewStmt = db.prepare(`SELECT COUNT(*) as count FROM cards WHERE nextReviewDate IS NULL OR date(nextReviewDate) <= ?`)
+    const toReviewCount = (toReviewStmt.get(today) as any).count
+    
+    return {
+      cardsReviewed: reviewedCount,
+      retentionRate: Math.round(retentionRate),
+      cardsToReview: toReviewCount
+    }
   }
 }

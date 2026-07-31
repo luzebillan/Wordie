@@ -115,6 +115,7 @@ ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
 ipcMain.handle('get-settings', () => dbHandlers.getSettings())
 ipcMain.handle('save-settings', (_, settings) => dbHandlers.saveSettings(settings))
+ipcMain.handle('get-stats', () => dbHandlers.getStats())
 ipcMain.handle('validate-sketch-engine', async (_, { url, apiKey }) => {
   try {
     // Basic ping to Sketch Engine corpus info endpoint

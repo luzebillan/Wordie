@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   createCard: (card: any) => ipcRenderer.invoke('create-card', card),
   getCards: () => ipcRenderer.invoke('get-cards'),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
+  getStats: () => ipcRenderer.invoke('get-stats'),
   
   // Settings APIs
   getSettings: () => ipcRenderer.invoke('get-settings'),

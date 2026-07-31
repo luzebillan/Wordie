@@ -4,9 +4,9 @@
 
 **Blocked by:** 03-settings-modal
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Implement splash screen logic and routing.
-- [ ] Query DB for today's stats (reviewed count, first-try correct count).
-- [ ] Build Left Panel navigation skeleton.
-- [ ] Build Top Dashboard stats components.
+- [x] Implement splash screen logic and routing.
+- [x] Query DB for today's stats (reviewed count, first-try correct count).
+- [x] Build Left Panel navigation skeleton.
+- [x] Build Top Dashboard stats components.
