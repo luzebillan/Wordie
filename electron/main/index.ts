@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { update } from './update'
 import { initDB, dbHandlers } from './db'
+import { aiGenerateExpression } from './ai'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -132,66 +133,23 @@ app.on('activate', () => {
 // Initialize database
 initDB()
 
-// Database IPC handlers
+// Database IPC
 ipcMain.handle('create-card', (_, card) => dbHandlers.createCard(card))
 ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
-ipcMain.handle('get-settings', () => dbHandlers.getSettings())
-ipcMain.handle('save-settings', (_, settings) => dbHandlers.saveSettings(settings))
-ipcMain.handle('get-stats', () => dbHandlers.getStats())
-ipcMain.handle('search-cards', (_, keyword) => dbHandlers.searchCards(keyword))
+ipcMain.handle('search-cards', (_, query) => dbHandlers.searchCards(query))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
 
-ipcMain.handle('ai-generate-card', async (_, { target, context, style }) => {
+// Settings Handlers
+ipcMain.handle('get-settings', () => dbHandlers.getSettings())
+ipcMain.handle('save-settings', (_, settings) => dbHandlers.saveSettings(settings))
+
+ipcMain.handle('generate-expression', async (_, { context, style, front }) => {
   const settings = dbHandlers.getSettings()
-  const aiKey = settings.aiKey
-  const aiUrl = (settings.aiUrl || 'https://api.openai.com/v1').replace(/\/$/, '')
-  const aiModel = settings.aiModel || 'gpt-4o'
-  
-  if (!aiKey) {
-    return { success: false, error: 'AI API Key is missing. Please configure it in Settings.' }
-  }
-  
-  const systemPrompt = `You are a professional language tutor creating a vocabulary card for a student.
-Please generate a JSON object for the target word/expression: "${target}".
-Context: ${context || 'General'}
-Style: ${style || 'Standard'}
-
-Return ONLY a valid JSON object with the following fields:
-- "target": The corrected/standardized target word or expression.
-- "translation": The translation in Chinese.
-- "pronunciation": IPA pronunciation (if applicable, else empty string).
-- "example": A highly practical, native-sounding example sentence matching the Context and Style.
-- "usage": A brief note on when to use it, grammar nuance, or tone.`
-
-  try {
-    const res = await fetch(`${aiUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${aiKey}`
-      },
-      body: JSON.stringify({
-        model: aiModel,
-        messages: [{ role: 'user', content: systemPrompt }],
-        response_format: { type: "json_object" }
-      })
-    })
-    
-    if (!res.ok) {
-      const err = await res.text()
-      return { success: false, error: `${res.status} - ${err.slice(0, 100)}` }
-    }
-    
-    const data = await res.json()
-    const content = data.choices[0].message.content
-    const parsed = JSON.parse(content)
-    return { success: true, data: parsed }
-  } catch (err: any) {
-    // Attempt to extract json anyway if response format failed
-    return { success: false, error: err.message }
-  }
+  return await aiGenerateExpression(context, style, front, settings)
 })
+
+ipcMain.handle('get-stats', () => dbHandlers.getStats())
 ipcMain.handle('validate-sketch-engine', async (_, { url, apiKey }) => {
   try {
     // Basic ping to Sketch Engine corpus info endpoint

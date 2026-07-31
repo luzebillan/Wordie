@@ -2,15 +2,21 @@ interface Window {
   ipcRenderer: import('electron').IpcRenderer & {
     createCard: (card: any) => Promise<any>
     getCards: () => Promise<any[]>
-    deleteCard: (id: number) => Promise<{ success: boolean }>
-    getStats: () => Promise<{ cardsReviewed: number, retentionRate: number, cardsToReview: number }>
-    searchCards: (keyword: string) => Promise<any[]>
-    incrementUseCount: (id: number) => Promise<{ success: boolean }>
-    aiGenerateCard: (target: string, context: string, style: string) => Promise<{ success: boolean; data?: any; error?: string }>
+    deleteCard: (id: number) => Promise<{success: boolean}>
+    searchCards: (query: string) => Promise<any[]>
+    incrementUseCount: (id: number) => Promise<{success: boolean}>
+    getStats: () => Promise<any>
+    
+    // Settings APIs
     getSettings: () => Promise<Record<string, string>>
-    saveSettings: (settings: Record<string, string>) => Promise<{ success: boolean }>
-    validateSketchEngine: (url: string, apiKey: string) => Promise<{ success: boolean; error?: string }>
-    validateAiApi: (url: string, apiKey: string, model: string) => Promise<{ success: boolean; error?: string }>
+    saveSettings: (settings: Record<string, string>) => Promise<{success: boolean}>
+    validateSketchEngine: (url: string, apiKey: string) => Promise<{success: boolean; validUntil?: string; error?: string}>
+    validateAiApi: (url: string, apiKey: string, model: string) => Promise<{success: boolean; error?: string}>
+    
+    // AI APIs
+    generateExpression: (context: string, style: string, front: string) => Promise<{success: boolean; result?: string; error?: string}>
+
+    // Window Controls
     minimizeWindow: () => void
     maximizeWindow: () => void
     closeWindow: () => void

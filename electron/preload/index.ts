@@ -23,16 +23,18 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   createCard: (card: any) => ipcRenderer.invoke('create-card', card),
   getCards: () => ipcRenderer.invoke('get-cards'),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
-  getStats: () => ipcRenderer.invoke('get-stats'),
-  searchCards: (keyword: string) => ipcRenderer.invoke('search-cards', keyword),
+  searchCards: (query: string) => ipcRenderer.invoke('search-cards', query),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
-  aiGenerateCard: (target: string, context: string, style: string) => ipcRenderer.invoke('ai-generate-card', { target, context, style }),
+  getStats: () => ipcRenderer.invoke('get-stats'),
   
   // Settings APIs
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('save-settings', settings),
   validateSketchEngine: (url: string, apiKey: string) => ipcRenderer.invoke('validate-sketch-engine', { url, apiKey }),
   validateAiApi: (url: string, apiKey: string, model: string) => ipcRenderer.invoke('validate-ai-api', { url, apiKey, model }),
+
+  // AI APIs
+  generateExpression: (context: string, style: string, front: string) => ipcRenderer.invoke('generate-expression', { context, style, front }),
 
   // Window Controls
   minimizeWindow: () => ipcRenderer.send('window-minimize'),

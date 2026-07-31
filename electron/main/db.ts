@@ -49,8 +49,8 @@ export function initDB() {
 export const dbHandlers = {
   createCard: (card: any) => {
     const stmt = db.prepare(`
-      INSERT INTO cards (type, front, back, style, label, useCount, nextReviewDate)
-      VALUES (@type, @front, @back, @style, @label, @useCount, @nextReviewDate)
+      INSERT INTO cards (type, front, back, style, label, nextReviewDate)
+      VALUES (@type, @front, @back, @style, @label, @nextReviewDate)
     `)
     const result = stmt.run({
       type: card.type,
@@ -58,7 +58,6 @@ export const dbHandlers = {
       back: card.back,
       style: card.style || null,
       label: card.label || null,
-      useCount: 1,
       nextReviewDate: card.nextReviewDate || new Date().toISOString()
     })
     return { id: result.lastInsertRowid, ...card }
@@ -68,19 +67,20 @@ export const dbHandlers = {
     return db.prepare('SELECT * FROM cards ORDER BY createdAt DESC').all()
   },
   
-  deleteCard: (id: number) => {
-    const stmt = db.prepare('DELETE FROM cards WHERE id = ?')
+  searchCards: (query: string) => {
+    if (!query) return []
+    // Search both front and back
+    return db.prepare("SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? ORDER BY createdAt DESC LIMIT 10").all(`%${query}%`, `%${query}%`)
+  },
+  
+  incrementUseCount: (id: number) => {
+    const stmt = db.prepare('UPDATE cards SET useCount = useCount + 1 WHERE id = ?')
     stmt.run(id)
     return { success: true }
   },
   
-  searchCards: (keyword: string) => {
-    const stmt = db.prepare("SELECT * FROM cards WHERE front LIKE '%' || ? || '%' ORDER BY createdAt DESC LIMIT 3")
-    return stmt.all(keyword)
-  },
-  
-  incrementUseCount: (id: number) => {
-    const stmt = db.prepare("UPDATE cards SET useCount = useCount + 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?")
+  deleteCard: (id: number) => {
+    const stmt = db.prepare('DELETE FROM cards WHERE id = ?')
     stmt.run(id)
     return { success: true }
   },
