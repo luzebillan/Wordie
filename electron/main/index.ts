@@ -5,7 +5,6 @@ import path from 'node:path'
 import os from 'node:os'
 import { update } from './update'
 import { initDB, dbHandlers } from './db'
-import { generateUsefulExpression } from './ai'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -140,10 +139,59 @@ ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
 ipcMain.handle('get-settings', () => dbHandlers.getSettings())
 ipcMain.handle('save-settings', (_, settings) => dbHandlers.saveSettings(settings))
 ipcMain.handle('get-stats', () => dbHandlers.getStats())
-ipcMain.handle('check-duplicate-card', (_, expression) => dbHandlers.checkDuplicateCard(expression))
+ipcMain.handle('search-cards', (_, keyword) => dbHandlers.searchCards(keyword))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
-ipcMain.handle('generate-useful-expression', (_, { expression, context, style }) => generateUsefulExpression(expression, context, style))
 
+ipcMain.handle('ai-generate-card', async (_, { target, context, style }) => {
+  const settings = dbHandlers.getSettings()
+  const aiKey = settings.aiKey
+  const aiUrl = (settings.aiUrl || 'https://api.openai.com/v1').replace(/\/$/, '')
+  const aiModel = settings.aiModel || 'gpt-4o'
+  
+  if (!aiKey) {
+    return { success: false, error: 'AI API Key is missing. Please configure it in Settings.' }
+  }
+  
+  const systemPrompt = `You are a professional language tutor creating a vocabulary card for a student.
+Please generate a JSON object for the target word/expression: "${target}".
+Context: ${context || 'General'}
+Style: ${style || 'Standard'}
+
+Return ONLY a valid JSON object with the following fields:
+- "target": The corrected/standardized target word or expression.
+- "translation": The translation in Chinese.
+- "pronunciation": IPA pronunciation (if applicable, else empty string).
+- "example": A highly practical, native-sounding example sentence matching the Context and Style.
+- "usage": A brief note on when to use it, grammar nuance, or tone.`
+
+  try {
+    const res = await fetch(`${aiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${aiKey}`
+      },
+      body: JSON.stringify({
+        model: aiModel,
+        messages: [{ role: 'user', content: systemPrompt }],
+        response_format: { type: "json_object" }
+      })
+    })
+    
+    if (!res.ok) {
+      const err = await res.text()
+      return { success: false, error: `${res.status} - ${err.slice(0, 100)}` }
+    }
+    
+    const data = await res.json()
+    const content = data.choices[0].message.content
+    const parsed = JSON.parse(content)
+    return { success: true, data: parsed }
+  } catch (err: any) {
+    // Attempt to extract json anyway if response format failed
+    return { success: false, error: err.message }
+  }
+})
 ipcMain.handle('validate-sketch-engine', async (_, { url, apiKey }) => {
   try {
     // Basic ping to Sketch Engine corpus info endpoint

@@ -49,8 +49,8 @@ export function initDB() {
 export const dbHandlers = {
   createCard: (card: any) => {
     const stmt = db.prepare(`
-      INSERT INTO cards (type, front, back, style, label, nextReviewDate)
-      VALUES (@type, @front, @back, @style, @label, @nextReviewDate)
+      INSERT INTO cards (type, front, back, style, label, useCount, nextReviewDate)
+      VALUES (@type, @front, @back, @style, @label, @useCount, @nextReviewDate)
     `)
     const result = stmt.run({
       type: card.type,
@@ -58,6 +58,7 @@ export const dbHandlers = {
       back: card.back,
       style: card.style || null,
       label: card.label || null,
+      useCount: 1,
       nextReviewDate: card.nextReviewDate || new Date().toISOString()
     })
     return { id: result.lastInsertRowid, ...card }
@@ -69,6 +70,17 @@ export const dbHandlers = {
   
   deleteCard: (id: number) => {
     const stmt = db.prepare('DELETE FROM cards WHERE id = ?')
+    stmt.run(id)
+    return { success: true }
+  },
+  
+  searchCards: (keyword: string) => {
+    const stmt = db.prepare("SELECT * FROM cards WHERE front LIKE '%' || ? || '%' ORDER BY createdAt DESC LIMIT 3")
+    return stmt.all(keyword)
+  },
+  
+  incrementUseCount: (id: number) => {
+    const stmt = db.prepare("UPDATE cards SET useCount = useCount + 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?")
     stmt.run(id)
     return { success: true }
   },
@@ -114,18 +126,5 @@ export const dbHandlers = {
       retentionRate: Math.round(retentionRate),
       cardsToReview: toReviewCount
     }
-  },
-
-  checkDuplicateCard: (expression: string) => {
-    if (!expression || expression.trim() === '') return []
-    // Search for cards of type 'Useful Expression' where the front matches the expression
-    const stmt = db.prepare(`SELECT * FROM cards WHERE type = 'Useful Expression' AND front LIKE ? ORDER BY useCount DESC LIMIT 3`)
-    return stmt.all(`%${expression.trim()}%`)
-  },
-
-  incrementUseCount: (id: number) => {
-    const stmt = db.prepare(`UPDATE cards SET useCount = useCount + 1, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
-    stmt.run(id)
-    return { success: true }
   }
 }
