@@ -48,27 +48,35 @@ async function createWindow() {
   win = new BrowserWindow({
     title: 'Main window',
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
-    width: 1126,
-    height: 800,
+    webPreferences: {
+      preload,
+      // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
+      // nodeIntegration: true,
+
+      // Consider using contextBridge.exposeInMainWorld
+      // Read more on https://www.electronjs.org/docs/latest/tutorial/context-isolation
+      // contextIsolation: false,
+    },
     frame: false,
     titleBarStyle: 'hidden',
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
   })
 
-  // Window Controls IPC
-  ipcMain.on('window-min', () => win?.minimize())
-  ipcMain.on('window-max', () => {
+  // Window control IPCs
+  ipcMain.on('window-minimize', () => {
+    win?.minimize()
+  })
+  
+  ipcMain.on('window-maximize', () => {
     if (win?.isMaximized()) {
       win.unmaximize()
     } else {
       win?.maximize()
     }
   })
-  ipcMain.on('window-close', () => win?.close())
+  
+  ipcMain.on('window-close', () => {
+    win?.close()
+  })
 
   if (VITE_DEV_SERVER_URL) { // #298
     win.loadURL(VITE_DEV_SERVER_URL)

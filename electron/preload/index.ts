@@ -19,11 +19,6 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
     return ipcRenderer.invoke(channel, ...omit)
   },
   
-  // Window Controls
-  windowMin: () => ipcRenderer.send('window-min'),
-  windowMax: () => ipcRenderer.send('window-max'),
-  windowClose: () => ipcRenderer.send('window-close'),
-
   // Database APIs
   createCard: (card: any) => ipcRenderer.invoke('create-card', card),
   getCards: () => ipcRenderer.invoke('get-cards'),
@@ -34,7 +29,12 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('save-settings', settings),
   validateSketchEngine: (url: string, apiKey: string) => ipcRenderer.invoke('validate-sketch-engine', { url, apiKey }),
-  validateAiApi: (url: string, apiKey: string, model: string) => ipcRenderer.invoke('validate-ai-api', { url, apiKey, model })
+  validateAiApi: (url: string, apiKey: string, model: string) => ipcRenderer.invoke('validate-ai-api', { url, apiKey, model }),
+
+  // Window Controls
+  minimizeWindow: () => ipcRenderer.send('window-minimize'),
+  maximizeWindow: () => ipcRenderer.send('window-maximize'),
+  closeWindow: () => ipcRenderer.send('window-close')
 
   // You can expose other APTs you need here.
   // ...
