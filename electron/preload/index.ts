@@ -18,6 +18,11 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
     const [channel, ...omit] = args
     return ipcRenderer.invoke(channel, ...omit)
   },
+  
+  // Database APIs
+  createCard: (card: any) => ipcRenderer.invoke('create-card', card),
+  getCards: () => ipcRenderer.invoke('get-cards'),
+  deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id)
 
   // You can expose other APTs you need here.
   // ...

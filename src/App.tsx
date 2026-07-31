@@ -37,6 +37,33 @@ function App() {
         >
           Test IPC Ping
         </button>
+        
+        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+          <button
+            type="button"
+            onClick={async () => {
+              const newCard = await window.ipcRenderer.createCard({
+                type: 'useful_expressions',
+                front: 'Hello',
+                back: '你好',
+                style: 'Formal'
+              })
+              alert(`Created card with ID: ${newCard.id}`)
+            }}
+          >
+            Create Dummy Card
+          </button>
+          
+          <button
+            type="button"
+            onClick={async () => {
+              const cards = await window.ipcRenderer.getCards()
+              alert(`Found ${cards.length} cards:\n${cards.map(c => c.front).join(', ')}`)
+            }}
+          >
+            Fetch Cards
+          </button>
+        </div>
       </section>
 
       <div className="ticks"></div>

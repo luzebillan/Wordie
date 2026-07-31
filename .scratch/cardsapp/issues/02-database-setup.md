@@ -4,9 +4,9 @@
 
 **Blocked by:** 01-project-scaffold
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Install better-sqlite3 and configure it in the main process to save to `userData`.
-- [ ] Create the schema initialization script.
-- [ ] Implement IPC handlers for CRUD operations.
-- [ ] Write a simple frontend component to test creating and fetching a dummy card.
+- [x] Install better-sqlite3 and configure it in the main process to save to `userData`.
+- [x] Create the schema initialization script.
+- [x] Implement IPC handlers for CRUD operations.
+- [x] Write a simple frontend component to test creating and fetching a dummy card.

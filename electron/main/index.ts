@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import { update } from './update'
+import { initDB, dbHandlers } from './db'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -104,6 +105,14 @@ app.on('activate', () => {
     createWindow()
   }
 })
+
+// Initialize database
+initDB()
+
+// Database IPC handlers
+ipcMain.handle('create-card', (_, card) => dbHandlers.createCard(card))
+ipcMain.handle('get-cards', () => dbHandlers.getCards())
+ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
 
 ipcMain.handle('ping', () => 'pong')
 
