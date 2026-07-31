@@ -62,6 +62,14 @@
   box-sizing: border-box;
 }
 
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-nodrag {
+  -webkit-app-region: no-drag;
+}
+
 body {
   margin: 0;
 }
