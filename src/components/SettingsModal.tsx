@@ -8,6 +8,8 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [apiKey, setApiKey] = useState('')
   const [apiUrl, setApiUrl] = useState('https://api.sketchengine.eu/bonito/run.cgi')
+  const [aiApiKey, setAiApiKey] = useState('')
+  const [aiApiUrl, setAiApiUrl] = useState('')
   const [aiModel, setAiModel] = useState('gpt-4o')
   const [validUntil, setValidUntil] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
@@ -18,6 +20,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       window.ipcRenderer.getSettings().then(settings => {
         if (settings.sketchEngineKey) setApiKey(settings.sketchEngineKey)
         if (settings.sketchEngineUrl) setApiUrl(settings.sketchEngineUrl)
+        if (settings.aiApiKey) setAiApiKey(settings.aiApiKey)
+        if (settings.aiApiUrl) setAiApiUrl(settings.aiApiUrl)
         if (settings.aiModel) setAiModel(settings.aiModel)
         if (settings.sketchEngineValidUntil) setValidUntil(settings.sketchEngineValidUntil)
       })
@@ -28,6 +32,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     await window.ipcRenderer.saveSettings({
       sketchEngineKey: apiKey,
       sketchEngineUrl: apiUrl,
+      aiApiKey,
+      aiApiUrl,
       aiModel,
       ...(validUntil ? { sketchEngineValidUntil: validUntil } : {})
     })
@@ -137,19 +143,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <span className="w-2 h-2 rounded-full bg-blue-500"></span>
               AI Assistant
             </h3>
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Preferred Model
+                API Base URL (Optional)
               </label>
-              <select 
+              <input 
+                type="text" 
+                value={aiApiUrl}
+                onChange={e => setAiApiUrl(e.target.value)}
+                className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white"
+                placeholder="https://api.openai.com/v1"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                API Key
+              </label>
+              <input 
+                type="password" 
+                value={aiApiKey}
+                onChange={e => setAiApiKey(e.target.value)}
+                className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white"
+                placeholder="Enter AI API Key"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Model Name
+              </label>
+              <input 
+                type="text" 
                 value={aiModel}
                 onChange={e => setAiModel(e.target.value)}
+                list="model-suggestions"
                 className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white"
-              >
-                <option value="gpt-4o">GPT-4o (OpenAI)</option>
-                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
-              </select>
+                placeholder="e.g. gpt-4o, claude-3-5-sonnet, deepseek-chat"
+              />
+              <datalist id="model-suggestions">
+                <option value="gpt-4o" />
+                <option value="gpt-4o-mini" />
+                <option value="claude-3-5-sonnet" />
+                <option value="gemini-1.5-pro" />
+                <option value="gemini-1.5-flash" />
+                <option value="deepseek-chat" />
+                <option value="deepseek-coder" />
+              </datalist>
             </div>
           </div>
         </div>
