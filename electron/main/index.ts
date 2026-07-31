@@ -131,6 +131,33 @@ ipcMain.handle('validate-sketch-engine', async (_, { url, apiKey }) => {
   }
 })
 
+ipcMain.handle('validate-ai-api', async (_, { url, apiKey, model }) => {
+  try {
+    const targetUrl = (url || 'https://api.openai.com/v1').replace(/\/$/, '')
+    // A minimal test request assuming an OpenAI-compatible endpoint
+    const res = await fetch(`${targetUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model || 'gpt-4o',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 1
+      })
+    })
+    
+    if (res.ok) {
+      return { success: true }
+    }
+    const errorText = await res.text()
+    return { success: false, error: `${res.status} ${res.statusText} - ${errorText.slice(0, 100)}` }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+})
+
 ipcMain.handle('ping', () => 'pong')
 
 // New window example arg: new windows url

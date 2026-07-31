@@ -27,7 +27,8 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   // Settings APIs
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('save-settings', settings),
-  validateSketchEngine: (url: string, apiKey: string) => ipcRenderer.invoke('validate-sketch-engine', { url, apiKey })
+  validateSketchEngine: (url: string, apiKey: string) => ipcRenderer.invoke('validate-sketch-engine', { url, apiKey }),
+  validateAiApi: (url: string, apiKey: string, model: string) => ipcRenderer.invoke('validate-ai-api', { url, apiKey, model })
 
   // You can expose other APTs you need here.
   // ...

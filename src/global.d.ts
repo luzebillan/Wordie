@@ -6,5 +6,6 @@ interface Window {
     getSettings: () => Promise<Record<string, string>>
     saveSettings: (settings: Record<string, string>) => Promise<{ success: boolean }>
     validateSketchEngine: (url: string, apiKey: string) => Promise<{ success: boolean; error?: string }>
+    validateAiApi: (url: string, apiKey: string, model: string) => Promise<{ success: boolean; error?: string }>
   }
 }

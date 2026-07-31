@@ -8,11 +8,12 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [apiKey, setApiKey] = useState('')
   const [apiUrl, setApiUrl] = useState('https://api.sketchengine.eu/bonito/run.cgi')
+  const [aiUrl, setAiUrl] = useState('https://api.openai.com/v1')
+  const [aiKey, setAiKey] = useState('')
   const [aiModel, setAiModel] = useState('gpt-4o')
-  const [aiApiKey, setAiApiKey] = useState('')
-  const [aiBaseUrl, setAiBaseUrl] = useState('')
   const [validUntil, setValidUntil] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
+  const [isAiValidating, setIsAiValidating] = useState(false)
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
   useEffect(() => {
@@ -20,9 +21,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       window.ipcRenderer.getSettings().then(settings => {
         if (settings.sketchEngineKey) setApiKey(settings.sketchEngineKey)
         if (settings.sketchEngineUrl) setApiUrl(settings.sketchEngineUrl)
+        if (settings.aiUrl) setAiUrl(settings.aiUrl)
+        if (settings.aiKey) setAiKey(settings.aiKey)
         if (settings.aiModel) setAiModel(settings.aiModel)
-        if (settings.aiApiKey) setAiApiKey(settings.aiApiKey)
-        if (settings.aiBaseUrl) setAiBaseUrl(settings.aiBaseUrl)
         if (settings.sketchEngineValidUntil) setValidUntil(settings.sketchEngineValidUntil)
       })
     }
@@ -32,9 +33,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     await window.ipcRenderer.saveSettings({
       sketchEngineKey: apiKey,
       sketchEngineUrl: apiUrl,
+      aiUrl,
+      aiKey,
       aiModel,
-      aiApiKey,
-      aiBaseUrl,
       ...(validUntil ? { sketchEngineValidUntil: validUntil } : {})
     })
     showToast('Settings saved successfully', 'success')
@@ -59,6 +60,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     } else {
       setValidUntil(null)
       showToast(`Connection failed: ${result.error}`, 'error')
+    }
+  }
+
+  const handleValidateAi = async () => {
+    setIsAiValidating(true)
+    const result = await window.ipcRenderer.validateAiApi(aiUrl, aiKey, aiModel)
+    setIsAiValidating(false)
+    if (result.success) {
+      showToast('AI Connection successful!', 'success')
+      await window.ipcRenderer.saveSettings({ aiUrl, aiKey, aiModel })
+    } else {
+      showToast(`AI Connection failed: ${result.error}`, 'error')
     }
   }
 
@@ -141,48 +154,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           <div className="space-y-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
             <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-              AI Assistant
+              AI Assistant (OpenAI Compatible)
             </h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Preferred Model
-              </label>
-              <select 
-                value={aiModel}
-                onChange={e => setAiModel(e.target.value)}
-                className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white"
-              >
-                <option value="gpt-4o">GPT-4o (OpenAI)</option>
-                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
-              </select>
-            </div>
             
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex justify-between">
-                <span>API Base URL (Optional)</span>
+                <span>API Base URL</span>
+                <span className="text-xs text-gray-500">Default: https://api.openai.com/v1</span>
               </label>
               <input 
                 type="text" 
-                value={aiBaseUrl}
-                onChange={e => setAiBaseUrl(e.target.value)}
-                className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white"
-                placeholder="e.g. https://api.openai.com/v1"
+                value={aiUrl || ''}
+                onChange={e => setAiUrl(e.target.value)}
+                className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white text-sm"
+                placeholder="https://api.openai.com/v1"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                API Key
+              </label>
+              <input 
+                type="password" 
+                value={aiKey || ''}
+                onChange={e => setAiKey(e.target.value)}
+                className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white text-sm"
+                placeholder="sk-..."
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex justify-between items-center">
-                <span>API Key</span>
-                <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:text-blue-500 transition-colors">How to get this?</a>
+                <span>Model Name</span>
               </label>
-              <input 
-                type="password" 
-                value={aiApiKey}
-                onChange={e => setAiApiKey(e.target.value)}
-                className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white"
-                placeholder="sk-..."
-              />
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={aiModel}
+                  onChange={e => setAiModel(e.target.value)}
+                  className="flex-1 px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white text-sm"
+                  placeholder="gpt-4o, claude-3-5-sonnet-20241022, etc."
+                />
+                <button
+                  onClick={handleValidateAi}
+                  disabled={isAiValidating || !aiKey}
+                  className="px-4 py-2 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-800/60 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm whitespace-nowrap"
+                >
+                  {isAiValidating ? 'Testing...' : 'Test AI'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
