@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
   ]
 
   return (
-    <div className="w-72 h-full bg-white/50 dark:bg-black/20 border-r border-gray-200 dark:border-gray-800 flex flex-col pt-12 pb-6 px-5 backdrop-blur-md overflow-y-auto">
+    <div className="w-72 h-full bg-white/50 dark:bg-black/20 border-r border-gray-200 dark:border-gray-800 flex flex-col pt-12 pb-6 px-5 backdrop-blur-md">
       {/* Brand */}
       <div className="flex items-center gap-3 mb-8 px-1">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold text-lg">
@@ -63,14 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
 
       {/* Sketch Engine Status */}
       <div className="mb-8 px-2">
-        <div className="flex justify-between items-center mb-1">
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Sketch Engine</h3>
-          <button onClick={onOpenSettings} className="text-gray-400 hover:text-purple-500 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Sketch Engine</h3>
         <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {sketchUntil ? `Until ${sketchUntil}` : 'Not Configured'}
         </p>
@@ -98,8 +91,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
 
       <div className="flex-1"></div>
 
+      {/* Settings Row */}
+      <div className="mb-4">
+        <button
+          onClick={onOpenSettings}
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200"
+        >
+          <span className="text-base">⚙️</span>
+          Settings
+        </button>
+      </div>
+
       {/* Search */}
-      <div className="mt-4">
+      <div>
         <div className="relative w-full">
           <input 
             type="text"

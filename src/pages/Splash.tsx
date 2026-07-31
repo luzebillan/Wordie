@@ -38,15 +38,18 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
     window.ipcRenderer.getStats().then(setStats)
 
     // Sequence: Stage 1 (1.5s) -> Stage 2 (1.5s) -> Finish
+    let timer2: NodeJS.Timeout
     const timer1 = setTimeout(() => {
       setStage(2)
-      const timer2 = setTimeout(() => {
+      timer2 = setTimeout(() => {
         onFinish()
       }, 1500)
-      return () => clearTimeout(timer2)
     }, 1500)
 
-    return () => clearTimeout(timer1)
+    return () => {
+      clearTimeout(timer1)
+      if (timer2) clearTimeout(timer2)
+    }
   }, [onFinish])
 
   return (
