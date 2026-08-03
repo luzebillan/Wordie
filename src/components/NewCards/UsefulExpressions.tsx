@@ -101,6 +101,14 @@ export function UsefulExpressions() {
         <div className="flex gap-6 mb-8">
           {['Informal', 'Formal', 'General'].map(s => (
             <label key={s} className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="radio"
+                name="style"
+                value={s}
+                checked={style === s}
+                onChange={() => setStyle(s)}
+                className="hidden"
+              />
               <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                 style === s 
                   ? 'bg-purple-500 border-purple-500' 
