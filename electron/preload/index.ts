@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 
   // AI APIs
   generateExpression: (context: string, style: string, front: string) => ipcRenderer.invoke('generate-expression', { context, style, front }),
+  generateGlossary: (domain: string, front: string) => ipcRenderer.invoke('generate-glossary', { domain, front }),
+  generateDailyWord: (front: string) => ipcRenderer.invoke('generate-daily-word', { front }),
+  generateReadyVersion: (front: string) => ipcRenderer.invoke('generate-ready-version', { front }),
 
   // Window Controls
   minimizeWindow: () => ipcRenderer.send('window-minimize'),

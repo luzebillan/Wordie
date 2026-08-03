@@ -2,6 +2,9 @@ import React, { useState } from 'react'
 import { Sidebar } from '../components/Sidebar'
 import { SettingsModal } from '../components/SettingsModal'
 import { UsefulExpressions } from '../components/NewCards/UsefulExpressions'
+import { Glossary } from '../components/NewCards/Glossary'
+import { DailyWords } from '../components/NewCards/DailyWords'
+import { ReadyVersions } from '../components/NewCards/ReadyVersions'
 
 export const Dashboard: React.FC = () => {
   const [currentView, setCurrentView] = useState('new-cards')
@@ -34,13 +37,10 @@ export const Dashboard: React.FC = () => {
 
           {/* Sub Content */}
           <div className="flex-1 overflow-hidden">
-            {newCardsTab === 'Useful Expressions' ? (
-              <UsefulExpressions />
-            ) : (
-              <div className="h-full bg-white/60 dark:bg-black/30 backdrop-blur-md rounded-2xl border border-white/40 dark:border-white/10 p-8 flex items-center justify-center text-gray-400">
-                <p>Content for {newCardsTab} goes here.</p>
-              </div>
-            )}
+            {newCardsTab === 'Useful Expressions' && <UsefulExpressions />}
+            {newCardsTab === 'Glossary' && <Glossary />}
+            {newCardsTab === 'Daily Words' && <DailyWords />}
+            {newCardsTab === 'Ready Versions' && <ReadyVersions />}
           </div>
         </div>
       )

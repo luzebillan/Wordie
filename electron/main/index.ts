@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import { update } from './update'
-import { initDB, dbHandlers } from './db'
-import { aiGenerateExpression } from './ai'
+import { dbHandlers, initDB } from './db'
+import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion } from './ai'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -147,6 +147,21 @@ ipcMain.handle('save-settings', (_, settings) => dbHandlers.saveSettings(setting
 ipcMain.handle('generate-expression', async (_, { context, style, front }) => {
   const settings = dbHandlers.getSettings()
   return await aiGenerateExpression(context, style, front, settings)
+})
+
+ipcMain.handle('generate-glossary', async (_, { domain, front }) => {
+  const settings = dbHandlers.getSettings()
+  return await aiGenerateGlossary(domain, front, settings)
+})
+
+ipcMain.handle('generate-daily-word', async (_, { front }) => {
+  const settings = dbHandlers.getSettings()
+  return await aiGenerateDailyWord(front, settings)
+})
+
+ipcMain.handle('generate-ready-version', async (_, { front }) => {
+  const settings = dbHandlers.getSettings()
+  return await aiGenerateReadyVersion(front, settings)
 })
 
 ipcMain.handle('get-stats', () => dbHandlers.getStats())

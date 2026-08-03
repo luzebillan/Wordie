@@ -15,6 +15,9 @@ interface Window {
     
     // AI APIs
     generateExpression: (context: string, style: string, front: string) => Promise<{success: boolean; result?: string; error?: string}>
+    generateGlossary: (domain: string, front: string) => Promise<{success: boolean; result?: string; error?: string}>
+    generateDailyWord: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
+    generateReadyVersion: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
 
     // Window Controls
     minimizeWindow: () => void

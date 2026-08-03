@@ -16,6 +16,8 @@ export function initDB() {
       back TEXT NOT NULL,
       style TEXT,
       label TEXT,
+      imageUrl TEXT,
+      sourceContext TEXT,
       useCount INTEGER DEFAULT 0,
       repetitions INTEGER DEFAULT 0,
       interval INTEGER DEFAULT 0,
@@ -25,6 +27,15 @@ export function initDB() {
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  // Safely add new columns if the table already exists from an older version
+  try {
+    db.exec(`ALTER TABLE cards ADD COLUMN imageUrl TEXT`)
+  } catch (e) { /* Column likely exists */ }
+  
+  try {
+    db.exec(`ALTER TABLE cards ADD COLUMN sourceContext TEXT`)
+  } catch (e) { /* Column likely exists */ }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -49,8 +60,8 @@ export function initDB() {
 export const dbHandlers = {
   createCard: (card: any) => {
     const stmt = db.prepare(`
-      INSERT INTO cards (type, front, back, style, label, nextReviewDate)
-      VALUES (@type, @front, @back, @style, @label, @nextReviewDate)
+      INSERT INTO cards (type, front, back, style, label, imageUrl, sourceContext, nextReviewDate)
+      VALUES (@type, @front, @back, @style, @label, @imageUrl, @sourceContext, @nextReviewDate)
     `)
     const result = stmt.run({
       type: card.type,
@@ -58,6 +69,8 @@ export const dbHandlers = {
       back: card.back,
       style: card.style || null,
       label: card.label || null,
+      imageUrl: card.imageUrl || null,
+      sourceContext: card.sourceContext || null,
       nextReviewDate: card.nextReviewDate || new Date().toISOString()
     })
     return { id: result.lastInsertRowid, ...card }

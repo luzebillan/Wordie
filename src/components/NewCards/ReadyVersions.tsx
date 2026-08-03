@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react'
 
-export function UsefulExpressions() {
-  const [context, setContext] = useState('')
+export function ReadyVersions() {
   const [front, setFront] = useState('')
-  const [style, setStyle] = useState('General')
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
   const [similarCards, setSimilarCards] = useState<any[]>([])
 
-  // Debounced search for similar cards
   useEffect(() => {
     if (front.trim().length > 1) {
       const timer = setTimeout(() => {
@@ -23,14 +20,14 @@ export function UsefulExpressions() {
 
   const handleGenerate = async () => {
     if (!front.trim()) {
-      setError('Please enter a target expression first.')
+      setError('Please enter a target phrase first.')
       return
     }
     setError('')
     setIsGenerating(true)
     
     try {
-      const res = await window.ipcRenderer.generateExpression(context, style, front)
+      const res = await window.ipcRenderer.generateReadyVersion(front)
       if (res.success && res.result) {
         setBack(res.result)
       } else {
@@ -45,28 +42,22 @@ export function UsefulExpressions() {
 
   const handleSave = async () => {
     if (!front || !back) {
-      setError('Both Front and Back sides are required.')
+      setError('Both Phrase and Translation are required.')
       return
     }
     
     try {
       await window.ipcRenderer.createCard({
-        type: 'Useful Expressions',
+        type: 'Ready Versions',
         front,
         back,
-        style,
-        label: '',
-        sourceContext: context
+        label: ''
       })
       
-      // Reset form on success
-      setContext('')
       setFront('')
       setBack('')
-      setStyle('General')
       setError('')
       setSimilarCards([])
-      // You could show a success toast here
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
     }
@@ -75,7 +66,6 @@ export function UsefulExpressions() {
   const handleIncrementUseCount = async (id: number) => {
     try {
       await window.ipcRenderer.incrementUseCount(id)
-      // Refresh similar cards to show updated count (optional, but good for feedback)
       const updated = await window.ipcRenderer.searchCards(front.trim())
       setSimilarCards(updated)
     } catch (err: any) {
@@ -87,56 +77,16 @@ export function UsefulExpressions() {
     <div className="flex h-full animate-in fade-in duration-500">
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
-        {/* Context */}
-        <div className="mb-6">
-          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Context</label>
-          <textarea
-            value={context}
-            onChange={e => setContext(e.target.value)}
-            className="w-full h-32 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="Type Your Context Here"
-          />
-        </div>
-
-        {/* Style selection */}
-        <div className="flex gap-6 mb-8">
-          {['Informal', 'Formal', 'General'].map(s => (
-            <label key={s} className="flex items-center gap-2 cursor-pointer group">
-              <input
-                type="radio"
-                name="style"
-                value={s}
-                checked={style === s}
-                onChange={() => setStyle(s)}
-                className="hidden"
-              />
-              <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-                style === s 
-                  ? 'bg-purple-500 border-purple-500' 
-                  : 'border-gray-300 dark:border-gray-600 bg-transparent group-hover:border-purple-400'
-              }`}>
-                {style === s && (
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </div>
-              <span className={`text-sm font-medium ${style === s ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'}`}>
-                {s}
-              </span>
-            </label>
-          ))}
-        </div>
-
+        
         {/* Front Side */}
         <div className="mb-6">
-          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Front Side</label>
+          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Phrase / Idiom (Front Side)</label>
           <input
             type="text"
             value={front}
             onChange={e => setFront(e.target.value)}
-            className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="Type the Front Side of Your New Card Here"
+            className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-inset focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+            placeholder="Type the Phrase or Idiom Here"
           />
         </div>
 
@@ -149,7 +99,7 @@ export function UsefulExpressions() {
               className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-100 hover:bg-black dark:hover:bg-white text-white dark:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
               <span>✨</span>
-              {isGenerating ? 'Generating...' : 'Back Side'}
+              {isGenerating ? 'Generating...' : 'Explanation (Back Side)'}
             </button>
             {error && <span className="text-red-500 text-sm">{error}</span>}
           </div>
@@ -158,8 +108,8 @@ export function UsefulExpressions() {
             value={back}
             onChange={e => setBack(e.target.value)}
             disabled={isGenerating}
-            className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
-            placeholder="AI will generate the explanation here..."
+            className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-inset focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
+            placeholder="AI will generate the nuances and explanation here..."
           />
         </div>
 
@@ -170,7 +120,7 @@ export function UsefulExpressions() {
             disabled={!front || !back || isGenerating}
             className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Card
+            Save Phrase
           </button>
         </div>
       </div>
@@ -182,7 +132,7 @@ export function UsefulExpressions() {
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 mb-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
             </svg>
-            <p className="text-lg font-medium">No Similar Expressions Found</p>
+            <p className="text-lg font-medium">No Similar Phrases Found</p>
           </div>
         ) : (
           <div className="w-full h-full flex flex-col">
