@@ -4,7 +4,10 @@ interface Window {
     getCards: () => Promise<any[]>
     deleteCard: (id: number) => Promise<{success: boolean}>
     searchCards: (query: string) => Promise<any[]>
-    incrementUseCount: (id: number) => Promise<{success: boolean}>
+    incrementUseCount: (id: number) => Promise<void>
+    getDueCards: () => Promise<any[]>
+    updateCardText: (id: number, front: string, back: string) => Promise<{ success: boolean; error?: string }>
+    reviewCard: (id: number, isCorrect: boolean) => Promise<{ success: boolean; error?: string }>
     getStats: () => Promise<any>
     
     // Settings APIs

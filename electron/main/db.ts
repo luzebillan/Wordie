@@ -87,8 +87,72 @@ export const dbHandlers = {
   },
   
   incrementUseCount: (id: number) => {
-    const stmt = db.prepare('UPDATE cards SET useCount = useCount + 1 WHERE id = ?')
-    stmt.run(id)
+    db.exec(`UPDATE cards SET useCount = useCount + 1 WHERE id = ${id}`)
+  },
+
+  getDueCards: () => {
+    const today = new Date().toISOString().split('T')[0]
+    const stmt = db.prepare(`SELECT * FROM cards WHERE nextReviewDate IS NULL OR date(nextReviewDate) <= ? ORDER BY RANDOM() LIMIT 50`)
+    return stmt.all(today)
+  },
+
+  updateCardText: (id: number, front: string, back: string) => {
+    const stmt = db.prepare(`UPDATE cards SET front = ?, back = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
+    stmt.run(front, back, id)
+    return { success: true }
+  },
+
+  reviewCard: (id: number, isCorrect: boolean) => {
+    const cardStmt = db.prepare(`SELECT * FROM cards WHERE id = ?`)
+    const card = cardStmt.get(id) as any
+    if (!card) return { success: false, error: 'Card not found' }
+
+    let { repetitions, interval, easeFactor } = card
+
+    if (!isCorrect) {
+      // Forget (Quality 1)
+      repetitions = 0
+      interval = 1
+      easeFactor = Math.max(1.3, easeFactor - 0.2)
+    } else {
+      // Got it (Quality 4 equivalent)
+      if (repetitions === 0) {
+        interval = 1
+      } else if (repetitions === 1) {
+        interval = 6
+      } else {
+        interval = Math.round(interval * easeFactor)
+      }
+      repetitions += 1
+      easeFactor = easeFactor // Quality 4 doesn't change EF in standard SM-2
+    }
+
+    // nextReviewDate = now + interval days
+    const nextReviewDate = new Date()
+    nextReviewDate.setDate(nextReviewDate.getDate() + interval)
+    const nextReviewIso = nextReviewDate.toISOString()
+
+    const updateStmt = db.prepare(`
+      UPDATE cards 
+      SET repetitions = ?, interval = ?, easeFactor = ?, nextReviewDate = ?, updatedAt = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `)
+    updateStmt.run(repetitions, interval, easeFactor, nextReviewIso, id)
+
+    // Logging logic
+    const today = new Date().toISOString().split('T')[0]
+    
+    // Check if reviewed today
+    const checkLogStmt = db.prepare(`SELECT COUNT(*) as count FROM review_logs WHERE cardId = ? AND date(reviewDate) = ?`)
+    const logCheck = checkLogStmt.get(id, today) as any
+    const isFirstTry = logCheck.count === 0
+
+    const logStmt = db.prepare(`
+      INSERT INTO review_logs (cardId, isCorrect, isFirstTry)
+      VALUES (?, ?, ?)
+    `)
+    logStmt.run(id, isCorrect ? 1 : 0, isFirstTry ? 1 : 0)
+
     return { success: true }
   },
   

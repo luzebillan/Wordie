@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
   searchCards: (query: string) => ipcRenderer.invoke('search-cards', query),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
+  getDueCards: () => ipcRenderer.invoke('get-due-cards'),
+  updateCardText: (id: number, front: string, back: string) => ipcRenderer.invoke('update-card-text', { id, front, back }),
+  reviewCard: (id: number, isCorrect: boolean) => ipcRenderer.invoke('review-card', { id, isCorrect }),
   getStats: () => ipcRenderer.invoke('get-stats'),
   
   // Settings APIs

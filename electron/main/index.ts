@@ -150,6 +150,9 @@ ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
 ipcMain.handle('search-cards', (_, query) => dbHandlers.searchCards(query))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
+ipcMain.handle('get-due-cards', () => dbHandlers.getDueCards())
+ipcMain.handle('update-card-text', (_, { id, front, back }) => dbHandlers.updateCardText(id, front, back))
+ipcMain.handle('review-card', (_, { id, isCorrect }) => dbHandlers.reviewCard(id, isCorrect))
 
 // Settings Handlers
 ipcMain.handle('get-settings', () => dbHandlers.getSettings())
