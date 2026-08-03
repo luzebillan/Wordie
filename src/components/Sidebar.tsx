@@ -17,12 +17,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
   const [sketchUntil, setSketchUntil] = useState<string | null>(null)
 
   useEffect(() => {
-    window.ipcRenderer.getStats().then(setStats)
+    const fetchStats = () => {
+      window.ipcRenderer.getStats().then(setStats)
+    }
+    fetchStats()
+
     window.ipcRenderer.getSettings().then(settings => {
       if (settings.sketchEngineValidUntil) {
         setSketchUntil(settings.sketchEngineValidUntil)
       }
     })
+
+    window.addEventListener('stats-updated', fetchStats)
+    return () => window.removeEventListener('stats-updated', fetchStats)
   }, [])
 
   const navItems = [

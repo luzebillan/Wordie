@@ -51,6 +51,9 @@ export const Revision: React.FC = () => {
 
     // Submit review log and update SM-2
     await window.ipcRenderer.reviewCard(currentCard.id, isCorrect)
+    
+    // Notify sidebar to refresh stats
+    window.dispatchEvent(new Event('stats-updated'))
 
     // Move to next card
     if (currentIndex < dueCards.length - 1) {
