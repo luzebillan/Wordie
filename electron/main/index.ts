@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { update } from './update'
 import { dbHandlers, initDB } from './db'
-import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion } from './ai'
+import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion, aiRewritePractice } from './ai'
 import { downloadImage, uploadLocalImage, getImagesDir } from './imageCache'
 
 const require = createRequire(import.meta.url)
@@ -151,6 +151,7 @@ ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
 ipcMain.handle('search-cards', (_, query) => dbHandlers.searchCards(query))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
 ipcMain.handle('get-due-cards', () => dbHandlers.getDueCards())
+ipcMain.handle('get-random-cards', (_, limit) => dbHandlers.getRandomCards(limit))
 ipcMain.handle('update-card-text', (_, { id, front, back }) => dbHandlers.updateCardText(id, front, back))
 ipcMain.handle('review-card', (_, { id, isCorrect }) => dbHandlers.reviewCard(id, isCorrect))
 
@@ -176,6 +177,11 @@ ipcMain.handle('generate-daily-word', async (_, { front }) => {
 ipcMain.handle('generate-ready-version', async (_, { front }) => {
   const settings = dbHandlers.getSettings()
   return await aiGenerateReadyVersion(front, settings)
+})
+
+ipcMain.handle('ai-rewrite-practice', async (_, { text, targetWords }) => {
+  const settings = dbHandlers.getSettings()
+  return await aiRewritePractice(text, targetWords, settings)
 })
 
 ipcMain.handle('get-stats', () => dbHandlers.getStats())

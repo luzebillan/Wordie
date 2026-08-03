@@ -24,6 +24,27 @@ Format the output clearly. Return ONLY the flashcard back side content.`
   return await callAiApi(prompt, settings)
 }
 
+export async function aiGenerateReadyVersionSimple(front: string, settings: any) {
+  const prompt = `You are an expert bilingual native speaker. The user has provided an idiom, slang, or tricky phrase: "${front}". Provide a natural, native-sounding "ready version" explanation or nuance that captures its essence. Make it concise and highly readable.`
+  const systemPrompt = 'Answer in a casual but clear tone. You can use Markdown.'
+  
+  return callOpenAI(prompt, systemPrompt, settings)
+}
+
+export async function aiRewritePractice(text: string, targetWords: string[], settings: any) {
+  const wordsList = targetWords.join(', ')
+  const prompt = `You are an expert editor. Rewrite the following text to sound more native, polished, and natural. 
+Crucially, you must try to naturally embed as many of the following target words into the rewritten text as possible: [${wordsList}].
+If the user's text is too short, dynamically reduce the number of target words you try to embed to keep it natural. 
+Output ONLY the rewritten text. Do not add any conversational filler. Ensure that the target words you embed appear exactly as provided so they can be matched later, though basic grammatical conjugation is acceptable if absolutely necessary (but exact match is strongly preferred).
+
+User's Text:
+${text}`
+  const systemPrompt = 'You are a helpful expert editor.'
+
+  return callOpenAI(prompt, systemPrompt, settings)
+}
+
 export async function aiGenerateReadyVersion(
   front: string,
   settings: Record<string, string>

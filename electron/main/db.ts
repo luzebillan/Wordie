@@ -96,6 +96,11 @@ export const dbHandlers = {
     return stmt.all(today)
   },
 
+  getRandomCards: (limit: number = 8) => {
+    const stmt = db.prepare(`SELECT * FROM cards ORDER BY RANDOM() LIMIT ?`)
+    return stmt.all(limit)
+  },
+
   updateCardText: (id: number, front: string, back: string) => {
     const stmt = db.prepare(`UPDATE cards SET front = ?, back = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
     stmt.run(front, back, id)

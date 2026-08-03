@@ -6,6 +6,7 @@ interface Window {
     searchCards: (query: string) => Promise<any[]>
     incrementUseCount: (id: number) => Promise<void>
     getDueCards: () => Promise<any[]>
+    getRandomCards: (limit?: number) => Promise<any[]>
     updateCardText: (id: number, front: string, back: string) => Promise<{ success: boolean; error?: string }>
     reviewCard: (id: number, isCorrect: boolean) => Promise<{ success: boolean; error?: string }>
     getStats: () => Promise<any>
@@ -21,6 +22,7 @@ interface Window {
     generateGlossary: (domain: string, front: string) => Promise<{success: boolean; result?: string; error?: string}>
     generateDailyWord: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
     generateReadyVersion: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
+    aiRewritePractice: (text: string, targetWords: string[]) => Promise<{success: boolean; result?: string; error?: string}>
 
     // Image APIs
     downloadImage: (url: string) => Promise<{success: boolean; filename?: string; error?: string}>

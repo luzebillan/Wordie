@@ -6,6 +6,7 @@ import { Glossary } from '../components/NewCards/Glossary'
 import { DailyWords } from '../components/NewCards/DailyWords'
 import { ReadyVersions } from '../components/NewCards/ReadyVersions'
 import { Revision } from './Revision'
+import { Practice } from './Practice'
 
 export const Dashboard: React.FC = () => {
   const [currentView, setCurrentView] = useState('new-cards')
@@ -49,6 +50,10 @@ export const Dashboard: React.FC = () => {
 
     if (currentView === 'revision') {
       return <Revision />
+    }
+
+    if (currentView === 'practice') {
+      return <Practice />
     }
 
     return (

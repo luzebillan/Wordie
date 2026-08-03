@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   searchCards: (query: string) => ipcRenderer.invoke('search-cards', query),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
   getDueCards: () => ipcRenderer.invoke('get-due-cards'),
+  getRandomCards: (limit?: number) => ipcRenderer.invoke('get-random-cards', limit),
   updateCardText: (id: number, front: string, back: string) => ipcRenderer.invoke('update-card-text', { id, front, back }),
   reviewCard: (id: number, isCorrect: boolean) => ipcRenderer.invoke('review-card', { id, isCorrect }),
   getStats: () => ipcRenderer.invoke('get-stats'),
@@ -41,6 +42,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   generateGlossary: (domain: string, front: string) => ipcRenderer.invoke('generate-glossary', { domain, front }),
   generateDailyWord: (front: string) => ipcRenderer.invoke('generate-daily-word', { front }),
   generateReadyVersion: (front: string) => ipcRenderer.invoke('generate-ready-version', { front }),
+  aiRewritePractice: (text: string, targetWords: string[]) => ipcRenderer.invoke('ai-rewrite-practice', { text, targetWords }),
 
   // Image APIs
   downloadImage: (url: string) => ipcRenderer.invoke('download-image', url),
