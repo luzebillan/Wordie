@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, protocol, net } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -6,6 +6,7 @@ import os from 'node:os'
 import { update } from './update'
 import { dbHandlers, initDB } from './db'
 import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion } from './ai'
+import { downloadImage, uploadLocalImage, getImagesDir } from './imageCache'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -106,7 +107,17 @@ async function createWindow() {
   update(win)
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  // Register custom protocol for loading local images safely
+  protocol.handle('local-asset', (request) => {
+    // URL format: local-asset://<filename>
+    const url = request.url.replace('local-asset://', '')
+    const filePath = path.join(getImagesDir(), decodeURIComponent(url))
+    return net.fetch('file://' + filePath)
+  })
+
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   win = null
@@ -209,6 +220,17 @@ ipcMain.handle('validate-ai-api', async (_, { url, apiKey, model }) => {
 })
 
 ipcMain.handle('ping', () => 'pong')
+
+// Image caching
+ipcMain.handle('download-image', async (_, url) => {
+  return await downloadImage(url)
+})
+ipcMain.handle('upload-local-image', async () => {
+  if (win) {
+    return await uploadLocalImage(win)
+  }
+  return { success: false, error: 'No active window' }
+})
 
 // New window example arg: new windows url
 ipcMain.handle('open-win', (_, arg) => {

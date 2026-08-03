@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   generateDailyWord: (front: string) => ipcRenderer.invoke('generate-daily-word', { front }),
   generateReadyVersion: (front: string) => ipcRenderer.invoke('generate-ready-version', { front }),
 
+  // Image APIs
+  downloadImage: (url: string) => ipcRenderer.invoke('download-image', url),
+  uploadLocalImage: () => ipcRenderer.invoke('upload-local-image'),
+
   // Window Controls
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
   maximizeWindow: () => ipcRenderer.send('window-maximize'),

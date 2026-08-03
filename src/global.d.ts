@@ -19,6 +19,10 @@ interface Window {
     generateDailyWord: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
     generateReadyVersion: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
 
+    // Image APIs
+    downloadImage: (url: string) => Promise<{success: boolean; filename?: string; error?: string}>
+    uploadLocalImage: () => Promise<{success: boolean; filename?: string; error?: string}>
+
     // Window Controls
     minimizeWindow: () => void
     maximizeWindow: () => void

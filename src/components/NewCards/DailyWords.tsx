@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 export function DailyWords() {
   const [front, setFront] = useState('')
   const [imageUrl, setImageUrl] = useState('')
+  const [isCaching, setIsCaching] = useState(false)
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
@@ -47,6 +48,12 @@ export function DailyWords() {
       return
     }
     
+    // Check if the image url is an external url that hasn't been cached
+    if (imageUrl && imageUrl.startsWith('http')) {
+      setError('Please cache the image first before saving.')
+      return
+    }
+
     try {
       await window.ipcRenderer.createCard({
         type: 'Daily Words',
@@ -76,6 +83,44 @@ export function DailyWords() {
     }
   }
 
+  const handleCacheImage = async () => {
+    if (!imageUrl || !imageUrl.startsWith('http')) {
+      setError('Please enter a valid HTTP/HTTPS URL.')
+      return
+    }
+    setError('')
+    setIsCaching(true)
+    try {
+      const res = await window.ipcRenderer.downloadImage(imageUrl)
+      if (res.success && res.filename) {
+        setImageUrl(res.filename)
+      } else {
+        setError(res.error || 'Failed to download image.')
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred.')
+    } finally {
+      setIsCaching(false)
+    }
+  }
+
+  const handleUploadLocal = async () => {
+    setError('')
+    setIsCaching(true)
+    try {
+      const res = await window.ipcRenderer.uploadLocalImage()
+      if (res.success && res.filename) {
+        setImageUrl(res.filename)
+      } else if (res.error !== 'User canceled file selection') {
+        setError(res.error || 'Failed to upload image.')
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred.')
+    } finally {
+      setIsCaching(false)
+    }
+  }
+
   return (
     <div className="flex h-full animate-in fade-in duration-500">
       {/* Left Panel: Form */}
@@ -95,14 +140,43 @@ export function DailyWords() {
 
         {/* Image URL */}
         <div className="mb-6">
-          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Image URL (Optional)</label>
-          <input
-            type="text"
-            value={imageUrl}
-            onChange={e => setImageUrl(e.target.value)}
-            className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="https://example.com/image.jpg"
-          />
+          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Image (Optional)</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={imageUrl}
+              onChange={e => setImageUrl(e.target.value)}
+              className="flex-1 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+              placeholder="Paste image URL or upload file..."
+            />
+            
+            {imageUrl && imageUrl.startsWith('http') && (
+              <button
+                onClick={handleCacheImage}
+                disabled={isCaching}
+                className="px-6 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-2xl font-bold transition-colors disabled:opacity-50"
+              >
+                {isCaching ? 'Caching...' : 'Cache ⬇️'}
+              </button>
+            )}
+
+            <button
+              onClick={handleUploadLocal}
+              disabled={isCaching}
+              className="px-6 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-2xl font-bold transition-colors disabled:opacity-50"
+              title="Upload Local File"
+            >
+              📁
+            </button>
+          </div>
+          
+          {/* Cached Image Preview */}
+          {imageUrl && !imageUrl.startsWith('http') && (
+            <div className="mt-4 p-2 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl inline-block shadow-sm">
+              <img src={`local-asset://${imageUrl}`} alt="Cached Preview" className="h-24 w-auto rounded-lg object-contain" />
+              <div className="text-xs text-gray-500 mt-2 text-center">Cached Locally</div>
+            </div>
+          )}
         </div>
 
         {/* Generate Button & Back Side */}
