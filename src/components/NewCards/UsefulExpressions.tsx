@@ -85,7 +85,7 @@ export function UsefulExpressions() {
   return (
     <div className="flex h-full animate-in fade-in duration-500">
       {/* Left Panel: Form */}
-      <div className="flex-1 pr-8 pl-1 py-1 -ml-1 overflow-y-auto">
+      <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
         {/* Context */}
         <div className="mb-6">
           <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Context</label>
