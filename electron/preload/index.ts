@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   // Database APIs
   createCard: (card: any) => ipcRenderer.invoke('create-card', card),
   getCards: () => ipcRenderer.invoke('get-cards'),
+  getCard: (id: number) => ipcRenderer.invoke('get-card', id),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
   searchCards: (query: string) => ipcRenderer.invoke('search-cards', query),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
@@ -30,6 +31,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   updateCardText: (id: number, front: string, back: string) => ipcRenderer.invoke('update-card-text', { id, front, back }),
   reviewCard: (id: number, isCorrect: boolean) => ipcRenderer.invoke('review-card', { id, isCorrect }),
   getStats: () => ipcRenderer.invoke('get-stats'),
+  getModuleProgress: (moduleName: string) => ipcRenderer.invoke('get-module-progress', moduleName),
   
   // Settings APIs
   getSettings: () => ipcRenderer.invoke('get-settings'),

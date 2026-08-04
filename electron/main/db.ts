@@ -80,6 +80,10 @@ export const dbHandlers = {
     return db.prepare('SELECT * FROM cards ORDER BY createdAt DESC').all()
   },
   
+  getCard: (id: number) => {
+    return db.prepare('SELECT * FROM cards WHERE id = ?').get(id)
+  },
+  
   searchCards: (query: string) => {
     if (!query) return []
     // Search both front and back
@@ -207,6 +211,22 @@ export const dbHandlers = {
       cardsReviewed: reviewedCount,
       retentionRate: Math.round(retentionRate),
       cardsToReview: toReviewCount
+    }
+  },
+
+  getModuleProgress: (moduleName: string) => {
+    const today = new Date().toISOString().split('T')[0]
+    
+    const totalStmt = db.prepare(`SELECT COUNT(*) as count FROM cards WHERE type = ?`)
+    const totalCount = (totalStmt.get(moduleName) as any).count
+    
+    const dueStmt = db.prepare(`SELECT COUNT(*) as count FROM cards WHERE type = ? AND (nextReviewDate IS NULL OR date(nextReviewDate) <= ?)`)
+    const dueCount = (dueStmt.get(moduleName, today) as any).count
+    
+    return {
+      total: totalCount,
+      due: dueCount,
+      reviewed: totalCount - dueCount
     }
   }
 }
