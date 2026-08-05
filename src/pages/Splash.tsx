@@ -6,7 +6,7 @@ interface SplashProps {
 
 export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
   const [dateStr, setDateStr] = useState('')
-  const [stage, setStage] = useState<1 | 2>(1)
+  const [stage, setStage] = useState<1 | 2 | 3>(1)
   const [stats, setStats] = useState({ cardsReviewed: 0, cardsToReview: 0 })
 
   useEffect(() => {
@@ -34,56 +34,78 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
 
     setDateStr(`${month}. ${day}${suffix(day)}, ${year}`)
 
-    // Load stats while on stage 1
-    window.ipcRenderer.getStats().then(setStats)
+    let isMounted = true
 
-    // Sequence: Stage 1 (1.5s) -> Stage 2 (1.5s) -> Finish
-    let timer2: NodeJS.Timeout
-    const timer1 = setTimeout(() => {
+    const loadData = async () => {
+      // 保证至少显示 800ms，防止界面一闪而过
+      const minDelay = new Promise(resolve => setTimeout(resolve, 800))
+      const statsFetch = window.ipcRenderer?.getStats 
+        ? window.ipcRenderer.getStats() 
+        : Promise.resolve({ cardsReviewed: 0, cardsToReview: 0 })
+      
+      const [, fetchedStats] = await Promise.all([minDelay, statsFetch])
+      
+      if (!isMounted) return
+      setStats(fetchedStats)
+      
+      // 展开数据概览 (Stage 2)
       setStage(2)
-      timer2 = setTimeout(() => {
-        onFinish()
+      
+      // 给用户 1.5s 时间阅读数字
+      setTimeout(() => {
+        if (!isMounted) return
+        setStage(3) // 整体退场动画
+        setTimeout(() => {
+          if (!isMounted) return
+          onFinish()
+        }, 500) // 等待 500ms 退场动画完成
       }, 1500)
-    }, 1500)
+    }
+
+    loadData()
 
     return () => {
-      clearTimeout(timer1)
-      if (timer2) clearTimeout(timer2)
+      isMounted = false
     }
   }, [onFinish])
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen w-full bg-white dark:bg-[#16171d] transition-all duration-500 pt-8">
-      {stage === 1 ? (
-        <div className="flex flex-col items-center animate-in fade-in zoom-in duration-500">
-          <div className="flex items-center gap-4 animate-bounce-slow">
-            <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-600 to-indigo-500 bg-clip-text text-transparent mb-0">
-              CardsApp
-            </h1>
-          </div>
-          <p className="text-xl font-medium text-gray-500 dark:text-gray-400 mt-6 tracking-wide">
+    <div className={`flex flex-col items-center justify-center min-h-screen w-full bg-white dark:bg-[#16171d] transition-all duration-500 overflow-hidden ${stage === 3 ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+      
+      <div className="flex flex-col items-center">
+        {/* Header 块，不再隐藏日期，自然展开时会被往上推 */}
+        <div className="flex flex-col items-center">
+          <h1 className="text-5xl font-extrabold bg-gradient-to-r from-purple-600 to-indigo-500 bg-clip-text text-transparent mb-0 tracking-tight">
+            CardsApp
+          </h1>
+          <p className="text-xl font-medium text-gray-500 dark:text-gray-400 mt-4 tracking-wide">
             Welcome back.
           </p>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
             {dateStr}
           </p>
         </div>
-      ) : (
-        <div className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-8">Today's Overview</h2>
-          <div className="flex gap-12 text-center">
-            <div>
-              <p className="text-4xl font-black bg-gradient-to-br from-orange-400 to-red-500 bg-clip-text text-transparent">{stats.cardsToReview}</p>
-              <p className="text-sm font-medium text-gray-500 mt-2 uppercase tracking-widest">To Review</p>
-            </div>
-            <div className="w-px h-16 bg-gray-200 dark:bg-gray-800"></div>
-            <div>
-              <p className="text-4xl font-black bg-gradient-to-br from-blue-400 to-purple-500 bg-clip-text text-transparent">{stats.cardsReviewed}</p>
-              <p className="text-sm font-medium text-gray-500 mt-2 uppercase tracking-widest">Reviewed</p>
+
+        {/* 数据面板，使用 grid 行高过渡来实现完美的流式展开，拉大间距避免紧贴 */}
+        <div className={`grid transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] ${stage >= 2 ? 'grid-rows-[1fr] opacity-100 mt-16' : 'grid-rows-[0fr] opacity-0 mt-0'}`}>
+          <div className="overflow-hidden">
+            <div className={`transition-all duration-700 delay-100 ${stage >= 2 ? 'translate-y-0' : 'translate-y-8'}`}>
+              <div className="flex gap-16 text-center bg-gray-50/50 dark:bg-gray-800/30 backdrop-blur-xl px-12 py-8 rounded-3xl border border-gray-100 dark:border-gray-800/50 shadow-xl shadow-purple-500/5 dark:shadow-none">
+                <div>
+                  <p className="text-5xl font-black bg-gradient-to-br from-orange-400 to-red-500 bg-clip-text text-transparent drop-shadow-sm">{stats.cardsToReview}</p>
+                  <p className="text-xs font-bold text-gray-400 mt-3 uppercase tracking-[0.2em]">To Review</p>
+                </div>
+                <div className="w-px self-stretch bg-gray-200 dark:bg-gray-800/80 mx-2"></div>
+                <div>
+                  <p className="text-5xl font-black bg-gradient-to-br from-blue-400 to-purple-500 bg-clip-text text-transparent drop-shadow-sm">{stats.cardsReviewed}</p>
+                  <p className="text-xs font-bold text-gray-400 mt-3 uppercase tracking-[0.2em]">Reviewed</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
+      
     </div>
   )
 }

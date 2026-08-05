@@ -1,8 +1,9 @@
-import { app, BrowserWindow, shell, ipcMain, protocol, net } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, protocol, net, dialog } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
 import { update } from './update'
 import { dbHandlers, initDB } from './db'
 import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion, aiRewritePractice } from './ai'
@@ -84,6 +85,14 @@ async function createWindow() {
     win?.close()
   })
 
+  // Broadcast window state changes
+  win.on('maximize', () => {
+    win?.webContents.send('window-maximized', true)
+  })
+  win.on('unmaximize', () => {
+    win?.webContents.send('window-maximized', false)
+  })
+
   if (VITE_DEV_SERVER_URL) { // #298
     win.loadURL(VITE_DEV_SERVER_URL)
     // Open devTool if the app is not packaged
@@ -149,13 +158,69 @@ ipcMain.handle('create-card', (_, card) => dbHandlers.createCard(card))
 ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('get-card', (_, id) => dbHandlers.getCard(id))
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
-ipcMain.handle('search-cards', (_, query) => dbHandlers.searchCards(query))
+ipcMain.handle('search-cards', (_, { front, back }) => dbHandlers.searchCards(front, back))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
+ipcMain.handle('increment-encounter-count', (_, id) => dbHandlers.incrementEncounterCount(id))
 ipcMain.handle('get-due-cards', () => dbHandlers.getDueCards())
 ipcMain.handle('get-random-cards', (_, limit) => dbHandlers.getRandomCards(limit))
 ipcMain.handle('update-card-text', (_, { id, front, back }) => dbHandlers.updateCardText(id, front, back))
 ipcMain.handle('review-card', (_, { id, isCorrect }) => dbHandlers.reviewCard(id, isCorrect))
-ipcMain.handle('get-module-progress', (_, moduleName) => dbHandlers.getModuleProgress(moduleName))
+
+// Data Management IPCs
+ipcMain.handle('export-data', async () => {
+  if (!win) return { success: false, error: 'No active window' }
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Export Cards',
+    defaultPath: 'cards_backup.json',
+    filters: [{ name: 'JSON Files', extensions: ['json'] }]
+  })
+  if (canceled || !filePath) return { success: false, canceled: true }
+  
+  try {
+    const cards = dbHandlers.getCards()
+    fs.writeFileSync(filePath, JSON.stringify(cards, null, 2), 'utf-8')
+    return { success: true, filePath, count: cards.length }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('import-data', async () => {
+  if (!win) return { success: false, error: 'No active window' }
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Import Cards',
+    filters: [{ name: 'JSON Files', extensions: ['json'] }],
+    properties: ['openFile']
+  })
+  if (canceled || filePaths.length === 0) return { success: false, canceled: true }
+  
+  try {
+    const data = fs.readFileSync(filePaths[0], 'utf-8')
+    const cards = JSON.parse(data)
+    if (!Array.isArray(cards)) throw new Error('Invalid JSON format: expected an array')
+    
+    return dbHandlers.importCards(cards)
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('clear-data', async () => {
+  if (!win) return { success: false, error: 'No active window' }
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Cancel', 'Yes, Clear Database'],
+    defaultId: 0,
+    title: 'Clear Database',
+    message: 'Are you sure you want to clear the entire database?',
+    detail: 'This will delete all cards and review history. Your API settings will be preserved. This action cannot be undone.'
+  })
+  
+  if (response === 1) {
+    return dbHandlers.clearDatabase()
+  }
+  return { success: false, canceled: true }
+})
 
 // Settings Handlers
 ipcMain.handle('get-settings', () => dbHandlers.getSettings())

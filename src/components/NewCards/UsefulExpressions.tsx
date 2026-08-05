@@ -1,25 +1,51 @@
 import { useState, useEffect } from 'react'
 
-export function UsefulExpressions() {
+interface UsefulExpressionsProps {
+  onNavigate?: (view: string, props?: any) => void;
+}
+
+export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate }) => {
   const [context, setContext] = useState('')
   const [front, setFront] = useState('')
-  const [style, setStyle] = useState('General')
+  const [styles, setStyles] = useState<string[]>(['General', 'Informal', 'Formal'])
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
   const [similarCards, setSimilarCards] = useState<any[]>([])
+  const [toastMessage, setToastMessage] = useState('')
 
   // Debounced search for similar cards
   useEffect(() => {
-    if (front.trim().length > 1) {
+    if (front.trim().length > 1 || back.trim().length > 1) {
       const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim()).then(setSimilarCards)
+        window.ipcRenderer.searchCards(front.trim(), back.trim()).then(setSimilarCards)
       }, 300)
       return () => clearTimeout(timer)
     } else {
       setSimilarCards([])
     }
-  }, [front])
+  }, [front, back])
+
+  const handleStyleToggle = (s: string) => {
+    if (s === 'General') {
+      if (styles.includes('General')) {
+        setStyles([])
+      } else {
+        setStyles(['Informal', 'Formal', 'General'])
+      }
+    } else {
+      let newStyles = styles.includes(s) 
+        ? styles.filter(x => x !== s) 
+        : [...styles, s]
+        
+      if (newStyles.includes('General') && newStyles.length < 3) {
+        newStyles = newStyles.filter(x => x !== 'General')
+      } else if (!newStyles.includes('General') && newStyles.includes('Informal') && newStyles.includes('Formal')) {
+        newStyles.push('General')
+      }
+      setStyles(newStyles)
+    }
+  }
 
   const handleGenerate = async () => {
     if (!front.trim()) {
@@ -30,7 +56,7 @@ export function UsefulExpressions() {
     setIsGenerating(true)
     
     try {
-      const res = await window.ipcRenderer.generateExpression(context, style, front)
+      const res = await window.ipcRenderer.generateExpression(context, styles.join(', '), front)
       if (res.success && res.result) {
         setBack(res.result)
       } else {
@@ -54,7 +80,7 @@ export function UsefulExpressions() {
         type: 'Useful Expressions',
         front,
         back,
-        style,
+        style: styles.join(', '),
         label: '',
         sourceContext: context
       })
@@ -63,7 +89,7 @@ export function UsefulExpressions() {
       setContext('')
       setFront('')
       setBack('')
-      setStyle('General')
+      setStyles(['General', 'Informal', 'Formal'])
       setError('')
       setSimilarCards([])
       // You could show a success toast here
@@ -72,12 +98,14 @@ export function UsefulExpressions() {
     }
   }
 
-  const handleIncrementUseCount = async (id: number) => {
+  const handleIncrementEncounterCount = async (id: number) => {
     try {
-      await window.ipcRenderer.incrementUseCount(id)
-      // Refresh similar cards to show updated count (optional, but good for feedback)
-      const updated = await window.ipcRenderer.searchCards(front.trim())
+      await window.ipcRenderer.incrementEncounterCount(id)
+      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim())
       setSimilarCards(updated)
+      
+      setToastMessage('Encounter +1, schedule unchanged')
+      setTimeout(() => setToastMessage(''), 3000)
     } catch (err: any) {
       console.error(err)
     }
@@ -103,25 +131,25 @@ export function UsefulExpressions() {
           {['Informal', 'Formal', 'General'].map(s => (
             <label key={s} className="flex items-center gap-2 cursor-pointer group">
               <input
-                type="radio"
+                type="checkbox"
                 name="style"
                 value={s}
-                checked={style === s}
-                onChange={() => setStyle(s)}
+                checked={styles.includes(s)}
+                onChange={() => handleStyleToggle(s)}
                 className="hidden"
               />
               <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-                style === s 
+                styles.includes(s)
                   ? 'bg-purple-500 border-purple-500' 
                   : 'border-gray-300 dark:border-gray-600 bg-transparent group-hover:border-purple-400'
               }`}>
-                {style === s && (
+                {styles.includes(s) && (
                   <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
                 )}
               </div>
-              <span className={`text-sm font-medium ${style === s ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'}`}>
+              <span className={`text-sm font-medium ${styles.includes(s) ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'}`}>
                 {s}
               </span>
             </label>
@@ -189,25 +217,37 @@ export function UsefulExpressions() {
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Similar Cards</h3>
             <div className="flex-1 overflow-y-auto space-y-4 pr-2">
               {similarCards.map((card) => (
-                <div key={card.id} className="bg-white dark:bg-[#1f2028] p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                <div 
+                  key={card.id} 
+                  className="bg-white dark:bg-[#1f2028] p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-500 transition-colors"
+                  onClick={() => onNavigate && onNavigate('revision', card.id)}
+                >
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-bold text-purple-600 dark:text-purple-400">{card.front}</h4>
                     <span className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-500">
-                      Used: {card.useCount}
+                      Encounters: {card.encounterCount || 0}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3 mb-3">
                     {card.back}
                   </p>
                   <button
-                    onClick={() => handleIncrementUseCount(card.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleIncrementEncounterCount(card.id);
+                    }}
                     className="w-full py-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-lg text-sm font-medium transition-colors"
                   >
-                    +1 Use Count
+                    +1 Encounter
                   </button>
                 </div>
               ))}
             </div>
+            {toastMessage && (
+              <div className="mt-4 p-2 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-bold rounded-lg text-center animate-in slide-in-from-bottom-2 fade-in">
+                {toastMessage}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -24,14 +24,19 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   getCards: () => ipcRenderer.invoke('get-cards'),
   getCard: (id: number) => ipcRenderer.invoke('get-card', id),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
-  searchCards: (query: string) => ipcRenderer.invoke('search-cards', query),
+  searchCards: (front: string, back: string = '') => ipcRenderer.invoke('search-cards', { front, back }),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
+  incrementEncounterCount: (id: number) => ipcRenderer.invoke('increment-encounter-count', id),
   getDueCards: () => ipcRenderer.invoke('get-due-cards'),
   getRandomCards: (limit?: number) => ipcRenderer.invoke('get-random-cards', limit),
   updateCardText: (id: number, front: string, back: string) => ipcRenderer.invoke('update-card-text', { id, front, back }),
   reviewCard: (id: number, isCorrect: boolean) => ipcRenderer.invoke('review-card', { id, isCorrect }),
   getStats: () => ipcRenderer.invoke('get-stats'),
-  getModuleProgress: (moduleName: string) => ipcRenderer.invoke('get-module-progress', moduleName),
+  
+  // Data APIs
+  exportData: () => ipcRenderer.invoke('export-data'),
+  importData: () => ipcRenderer.invoke('import-data'),
+  clearData: () => ipcRenderer.invoke('clear-data'),
   
   // Settings APIs
   getSettings: () => ipcRenderer.invoke('get-settings'),
@@ -53,7 +58,10 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   // Window Controls
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
   maximizeWindow: () => ipcRenderer.send('window-maximize'),
-  closeWindow: () => ipcRenderer.send('window-close')
+  closeWindow: () => ipcRenderer.send('window-close'),
+  onWindowMaximized: (callback: (isMaximized: boolean) => void) => {
+    ipcRenderer.on('window-maximized', (_, isMaximized) => callback(isMaximized))
+  }
 
   // You can expose other APTs you need here.
   // ...

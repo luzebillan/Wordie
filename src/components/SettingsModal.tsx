@@ -6,7 +6,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'api'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data'>('general')
   
   // General State
   const [showSplash, setShowSplash] = useState(true)
@@ -89,6 +89,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }
   }
 
+  const handleExport = async () => {
+    const res = await window.ipcRenderer.exportData()
+    if (res.canceled) return
+    if (res.success) {
+      showToast(`Successfully exported ${res.count} cards`, 'success')
+    } else {
+      showToast(`Export failed: ${res.error}`, 'error')
+    }
+  }
+
+  const handleImport = async () => {
+    const res = await window.ipcRenderer.importData()
+    if (res.canceled) return
+    if (res.success) {
+      showToast(`Imported ${res.imported} cards (${res.skipped} skipped)`, 'success')
+      window.dispatchEvent(new Event('settings-updated')) // To refresh data if needed
+    } else {
+      showToast(`Import failed: ${res.error}`, 'error')
+    }
+  }
+
+  const handleClear = async () => {
+    const res = await window.ipcRenderer.clearData()
+    if (res.canceled) return
+    if (res.success) {
+      showToast('Database cleared successfully', 'success')
+      window.dispatchEvent(new Event('settings-updated'))
+    } else {
+      showToast(`Failed to clear database: ${res.error}`, 'error')
+    }
+  }
+
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3000)
@@ -136,6 +168,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             >
               AI & API
             </button>
+            <button 
+              onClick={() => setActiveTab('data')}
+              className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'data' 
+                  ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Data Management
+            </button>
           </div>
 
           {/* Tab Content */}
@@ -169,7 +211,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </select>
                 </div>
               </div>
-            ) : (
+            ) : activeTab === 'api' ? (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 {/* Sketch Engine API Group */}
                 <div className="space-y-4">
@@ -279,7 +321,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </div>
                 </div>
               </div>
-            )}
+            ) : activeTab === 'data' ? (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="space-y-4">
+                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    Backup & Restore
+                  </h3>
+                  
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Export Cards</h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Save a backup of all your cards locally in JSON format.</p>
+                    </div>
+                    <button onClick={handleExport} className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm">
+                      Export Data
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Import Cards</h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Restore from a backup JSON file. Duplicates will be skipped safely.</p>
+                    </div>
+                    <button onClick={handleImport} className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm">
+                      Import Data
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
+                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    Danger Zone
+                  </h3>
+                  
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-red-50/50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-900/30">
+                    <div>
+                      <h3 className="text-sm font-medium text-red-700 dark:text-red-400">Clear Database</h3>
+                      <p className="text-xs text-red-600/70 dark:text-red-400/70 mt-1">Delete all cards and review history. Your API settings will not be affected.</p>
+                    </div>
+                    <button onClick={handleClear} className="px-4 py-2 bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-lg text-sm font-bold text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors shadow-sm">
+                      Clear Data
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 

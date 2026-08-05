@@ -4,14 +4,19 @@ interface Window {
     getCards: () => Promise<any[]>
     getCard: (id: number) => Promise<any>
     deleteCard: (id: number) => Promise<{success: boolean}>
-    searchCards: (query: string) => Promise<any[]>
+    searchCards: (front: string, back?: string) => Promise<any[]>
     incrementUseCount: (id: number) => Promise<void>
+    incrementEncounterCount: (id: number) => Promise<void>
     getDueCards: () => Promise<any[]>
     getRandomCards: (limit?: number) => Promise<any[]>
     updateCardText: (id: number, front: string, back: string) => Promise<{ success: boolean; error?: string }>
     reviewCard: (id: number, isCorrect: boolean) => Promise<{ success: boolean; error?: string }>
     getStats: () => Promise<any>
-    getModuleProgress: (moduleName: string) => Promise<{total: number, due: number, reviewed: number}>
+    
+    // Data APIs
+    exportData: () => Promise<{success: boolean; filePath?: string; count?: number; canceled?: boolean; error?: string}>
+    importData: () => Promise<{success: boolean; imported?: number; skipped?: number; canceled?: boolean; error?: string}>
+    clearData: () => Promise<{success: boolean; canceled?: boolean; error?: string}>
     
     // Settings APIs
     getSettings: () => Promise<Record<string, string>>

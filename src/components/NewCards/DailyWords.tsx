@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 
-export function DailyWords() {
+interface DailyWordsProps {
+  onNavigate?: (view: string, props?: any) => void;
+}
+
+export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate }) => {
   const [front, setFront] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [isCaching, setIsCaching] = useState(false)
@@ -8,17 +12,18 @@ export function DailyWords() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
   const [similarCards, setSimilarCards] = useState<any[]>([])
+  const [toastMessage, setToastMessage] = useState('')
 
   useEffect(() => {
-    if (front.trim().length > 1) {
+    if (front.trim().length > 1 || back.trim().length > 1) {
       const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim()).then(setSimilarCards)
+        window.ipcRenderer.searchCards(front.trim(), back.trim()).then(setSimilarCards)
       }, 300)
       return () => clearTimeout(timer)
     } else {
       setSimilarCards([])
     }
-  }, [front])
+  }, [front, back])
 
   const handleGenerate = async () => {
     if (!front.trim()) {
@@ -73,11 +78,14 @@ export function DailyWords() {
     }
   }
 
-  const handleIncrementUseCount = async (id: number) => {
+  const handleIncrementEncounterCount = async (id: number) => {
     try {
-      await window.ipcRenderer.incrementUseCount(id)
-      const updated = await window.ipcRenderer.searchCards(front.trim())
+      await window.ipcRenderer.incrementEncounterCount(id)
+      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim())
       setSimilarCards(updated)
+      
+      setToastMessage('Encounter +1, schedule unchanged')
+      setTimeout(() => setToastMessage(''), 3000)
     } catch (err: any) {
       console.error(err)
     }
@@ -228,25 +236,37 @@ export function DailyWords() {
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Similar Cards</h3>
             <div className="flex-1 overflow-y-auto space-y-4 pr-2">
               {similarCards.map((card) => (
-                <div key={card.id} className="bg-white dark:bg-[#1f2028] p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                <div 
+                  key={card.id} 
+                  className="bg-white dark:bg-[#1f2028] p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-500 transition-colors"
+                  onClick={() => onNavigate && onNavigate('revision', card.id)}
+                >
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-bold text-purple-600 dark:text-purple-400">{card.front}</h4>
                     <span className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-500">
-                      Used: {card.useCount}
+                      Encounters: {card.encounterCount || 0}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3 mb-3">
                     {card.back}
                   </p>
                   <button
-                    onClick={() => handleIncrementUseCount(card.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleIncrementEncounterCount(card.id);
+                    }}
                     className="w-full py-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-lg text-sm font-medium transition-colors"
                   >
-                    +1 Use Count
+                    +1 Encounter
                   </button>
                 </div>
               ))}
             </div>
+            {toastMessage && (
+              <div className="mt-4 p-2 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-bold rounded-lg text-center animate-in slide-in-from-bottom-2 fade-in">
+                {toastMessage}
+              </div>
+            )}
           </div>
         )}
       </div>

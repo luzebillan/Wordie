@@ -19,6 +19,7 @@ export function initDB() {
       imageUrl TEXT,
       sourceContext TEXT,
       useCount INTEGER DEFAULT 0,
+      encounterCount INTEGER DEFAULT 0,
       repetitions INTEGER DEFAULT 0,
       interval INTEGER DEFAULT 0,
       easeFactor REAL DEFAULT 2.5,
@@ -35,6 +36,10 @@ export function initDB() {
   
   try {
     db.exec(`ALTER TABLE cards ADD COLUMN sourceContext TEXT`)
+  } catch (e) { /* Column likely exists */ }
+  
+  try {
+    db.exec(`ALTER TABLE cards ADD COLUMN encounterCount INTEGER DEFAULT 0`)
   } catch (e) { /* Column likely exists */ }
 
   db.exec(`
@@ -84,14 +89,89 @@ export const dbHandlers = {
     return db.prepare('SELECT * FROM cards WHERE id = ?').get(id)
   },
   
-  searchCards: (query: string) => {
-    if (!query) return []
-    // Search both front and back
-    return db.prepare("SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? ORDER BY createdAt DESC LIMIT 10").all(`%${query}%`, `%${query}%`)
+  searchCards: (front: string, back: string = '') => {
+    if (!front && !back) return []
+    
+    // If only front is provided (typing in input), use fast SQL LIKE query
+    if (front && !back) {
+      return db.prepare("SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? ORDER BY createdAt DESC LIMIT 10").all(`%${front}%`, `%${front}%`)
+    }
+    
+    // If back is provided (AI generated), do an in-memory TF-like similarity ranking
+    const allCards = db.prepare("SELECT * FROM cards ORDER BY createdAt DESC").all() as any[]
+    
+    // ONLY extract tokens from the BACK side (the meaning/definition) to avoid literal string matching from the front side
+    const backText = back.toLowerCase()
+    const tokens = new Set<string>()
+    
+    // Basic stop words to ignore
+    const stopWords = new Set([
+      // English stopwords
+      'this', 'that', 'with', 'from', 'your', 'what', 'have', 'meaning', 'translation', 'example', 'sentence', 'context',
+      'when', 'they', 'them', 'there', 'their', 'some', 'about', 'would', 'could', 'should', 'which', 'where', 'whose',
+      'because', 'however', 'therefore', 'then', 'than', 'only', 'very', 'much', 'many', 'more', 'most', 'such', 'into',
+      'been', 'were', 'being', 'does', 'doing', 'done', 'will', 'shall', 'used', 'someone', 'something', 'anyone', 'anything',
+      
+      // Chinese stop bigrams
+      '这个', '那个', '这是', '就是', '我们', '你们', '他们', '可以', '但是', '因为', '所以', '如果', '或者', '并且',
+      '而且', '虽然', '即使', '用于', '表示', '释义', '意思', '例句', '翻译', '解释', '一个', '一种', '一些', '这些',
+      '那些', '非常', '比较', '其实', '只是', '还是', '这样', '那样', '怎么', '什么'
+    ])
+    
+    const engMatch = backText.match(/[a-z]{4,}/g)
+    if (engMatch) {
+      engMatch.forEach(w => {
+        if (!stopWords.has(w)) tokens.add(w)
+      })
+    }
+    
+    const zhChars = backText.match(/[\u4e00-\u9fa5]/g)
+    if (zhChars) {
+      // Create bigrams for Chinese
+      for (let i = 0; i < zhChars.length - 1; i++) {
+        const bigram = zhChars[i] + zhChars[i+1]
+        if (!stopWords.has(bigram)) tokens.add(bigram)
+      }
+    }
+    
+    if (tokens.size === 0) return []
+    
+    const scoredCards = allCards.map(card => {
+      let score = 0
+      
+      // Match against the OTHER card's back side ONLY
+      const otherBackText = (card.back || '').toLowerCase()
+      
+      // Boost exact/partial front match to maintain duplicate checker priority
+      if (front) {
+        if (card.front.toLowerCase() === front.toLowerCase()) {
+          score += 50
+        } else if (card.front.toLowerCase().includes(front.toLowerCase())) {
+          score += 20
+        }
+      }
+      
+      tokens.forEach(token => {
+        if (otherBackText.includes(token)) score += 2 // meaning match gets points
+      })
+      
+      return { card, score }
+    })
+    
+    return scoredCards
+      // Require at least 2 points (either one meaning match, or a literal match)
+      .filter(s => s.score >= 2)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(s => s.card)
   },
   
   incrementUseCount: (id: number) => {
     db.exec(`UPDATE cards SET useCount = useCount + 1 WHERE id = ${id}`)
+  },
+
+  incrementEncounterCount: (id: number) => {
+    db.exec(`UPDATE cards SET encounterCount = encounterCount + 1 WHERE id = ${id}`)
   },
 
   getDueCards: () => {
@@ -141,12 +221,15 @@ export const dbHandlers = {
     nextReviewDate.setDate(nextReviewDate.getDate() + interval)
     const nextReviewIso = nextReviewDate.toISOString()
 
+    // Increment encounter count because a review is an encounter (even if forgotten, but we'll increment for all reviews or just correct ones? The user said Got it! so let's increment if correct. Actually, an encounter is an encounter. I'll just increment it.)
+    const encounterIncrement = isCorrect ? 1 : 1; 
+
     const updateStmt = db.prepare(`
       UPDATE cards 
-      SET repetitions = ?, interval = ?, easeFactor = ?, nextReviewDate = ?, updatedAt = CURRENT_TIMESTAMP 
+      SET repetitions = ?, interval = ?, easeFactor = ?, nextReviewDate = ?, encounterCount = encounterCount + ?, updatedAt = CURRENT_TIMESTAMP 
       WHERE id = ?
     `)
-    updateStmt.run(repetitions, interval, easeFactor, nextReviewIso, id)
+    updateStmt.run(repetitions, interval, easeFactor, nextReviewIso, encounterIncrement, id)
 
     // Logging logic
     const today = new Date().toISOString().split('T')[0]
@@ -213,20 +296,61 @@ export const dbHandlers = {
       cardsToReview: toReviewCount
     }
   },
+  
+  clearDatabase: () => {
+    db.transaction(() => {
+      db.exec('DELETE FROM review_logs')
+      db.exec('DELETE FROM cards')
+      // Reset sqlite sequence for auto-increment IDs
+      db.exec("DELETE FROM sqlite_sequence WHERE name='cards' OR name='review_logs'")
+    })()
+    return { success: true }
+  },
 
-  getModuleProgress: (moduleName: string) => {
-    const today = new Date().toISOString().split('T')[0]
+  importCards: (cards: any[]) => {
+    let imported = 0
+    let skipped = 0
     
-    const totalStmt = db.prepare(`SELECT COUNT(*) as count FROM cards WHERE type = ?`)
-    const totalCount = (totalStmt.get(moduleName) as any).count
+    const checkStmt = db.prepare('SELECT id FROM cards WHERE front = ? AND type = ?')
+    const insertStmt = db.prepare(`
+      INSERT INTO cards (type, front, back, style, label, imageUrl, sourceContext, useCount, encounterCount, repetitions, interval, easeFactor, nextReviewDate, createdAt)
+      VALUES (@type, @front, @back, @style, @label, @imageUrl, @sourceContext, @useCount, @encounterCount, @repetitions, @interval, @easeFactor, @nextReviewDate, @createdAt)
+    `)
     
-    const dueStmt = db.prepare(`SELECT COUNT(*) as count FROM cards WHERE type = ? AND (nextReviewDate IS NULL OR date(nextReviewDate) <= ?)`)
-    const dueCount = (dueStmt.get(moduleName, today) as any).count
+    const transaction = db.transaction((cardsToImport: any[]) => {
+      for (const card of cardsToImport) {
+        // Skip duplicates based on front and type
+        const existing = checkStmt.get(card.front, card.type)
+        if (existing) {
+          skipped++
+          continue
+        }
+        
+        insertStmt.run({
+          type: card.type,
+          front: card.front,
+          back: card.back,
+          style: card.style || null,
+          label: card.label || null,
+          imageUrl: card.imageUrl || null,
+          sourceContext: card.sourceContext || null,
+          useCount: card.useCount || 0,
+          encounterCount: card.encounterCount || 0,
+          repetitions: card.repetitions || 0,
+          interval: card.interval || 0,
+          easeFactor: card.easeFactor || 2.5,
+          nextReviewDate: card.nextReviewDate || null,
+          createdAt: card.createdAt || new Date().toISOString()
+        })
+        imported++
+      }
+    })
     
-    return {
-      total: totalCount,
-      due: dueCount,
-      reviewed: totalCount - dueCount
+    try {
+      transaction(cards)
+      return { success: true, imported, skipped }
+    } catch (e: any) {
+      return { success: false, error: e.message }
     }
   }
 }
