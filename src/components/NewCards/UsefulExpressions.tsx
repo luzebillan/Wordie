@@ -14,11 +14,17 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
   const [similarCards, setSimilarCards] = useState<any[]>([])
   const [toastMessage, setToastMessage] = useState('')
 
+  const [stats, setStats] = useState({ cardsReviewed: 0, cardsToReview: 0 })
+
+  useEffect(() => {
+    window.ipcRenderer.getStatsByType('Useful Expressions').then(setStats)
+  }, [])
+
   // Debounced search for similar cards
   useEffect(() => {
     if (front.trim().length > 1 || back.trim().length > 1) {
       const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim(), back.trim()).then(setSimilarCards)
+        window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Useful Expressions').then(setSimilarCards)
       }, 300)
       return () => clearTimeout(timer)
     } else {
@@ -92,19 +98,20 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
       setStyles(['General', 'Informal', 'Formal'])
       setError('')
       setSimilarCards([])
+      window.ipcRenderer.getStatsByType('Useful Expressions').then(setStats)
       // You could show a success toast here
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
     }
   }
 
-  const handleIncrementEncounterCount = async (id: number) => {
+  const handleIncrementManualReviewCount = async (id: number) => {
     try {
-      await window.ipcRenderer.incrementEncounterCount(id)
-      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim())
+      await window.ipcRenderer.incrementManualReviewCount(id)
+      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Useful Expressions')
       setSimilarCards(updated)
       
-      setToastMessage('Encounter +1, schedule unchanged')
+      setToastMessage('+1 successful')
       setTimeout(() => setToastMessage(''), 3000)
     } catch (err: any) {
       console.error(err)
@@ -115,6 +122,24 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
     <div className="flex h-full animate-in fade-in duration-500">
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
+        {/* Progress Bar */}
+        <div className="mb-6 flex items-center gap-4">
+          <div className="h-1 flex-1 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden flex">
+            {stats.cardsReviewed + stats.cardsToReview > 0 ? (
+              <div 
+                className="bg-purple-600 dark:bg-purple-500 h-full transition-all duration-500" 
+                style={{ width: `${(stats.cardsReviewed / (stats.cardsReviewed + stats.cardsToReview)) * 100}%` }}
+              />
+            ) : (
+              <div className="bg-purple-600 dark:bg-purple-500 h-full w-0" />
+            )}
+          </div>
+          <div className="text-xs text-gray-500 flex gap-2">
+            <span>Reviewed {stats.cardsReviewed}</span>
+            <span>To Review {stats.cardsToReview}</span>
+          </div>
+        </div>
+
         {/* Context */}
         <div className="mb-6">
           <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Context</label>
@@ -224,22 +249,22 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
                 >
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-bold text-purple-600 dark:text-purple-400">{card.front}</h4>
-                    <span className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-500">
-                      Encounters: {card.encounterCount || 0}
-                    </span>
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3 mb-3">
                     {card.back}
                   </p>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleIncrementEncounterCount(card.id);
-                    }}
-                    className="w-full py-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    +1 Encounter
-                  </button>
+                  <div className="flex justify-between items-center text-sm font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
+                    <span>{(card.repetitions || 0) + (card.manualReviewCount || 0)} Reviews</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleIncrementManualReviewCount(card.id);
+                      }}
+                      className="px-3 py-1 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 rounded transition-colors"
+                    >
+                      +1
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

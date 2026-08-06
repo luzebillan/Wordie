@@ -110,18 +110,8 @@ export async function aiGenerateExpression(
   front: string,
   settings: Record<string, string>
 ): Promise<{ success: boolean; result?: string; error?: string }> {
-  const prompt = `You are an expert language teacher.
-Target Expression/Word: "${front}"
-Context/Sentence it was found in: "${context}"
-Desired Style/Register: ${style || 'General'}
-
-Please generate a concise, accurate flashcard back side for this target expression.
-Include:
-1. A brief explanation of the meaning in this context.
-2. The pronunciation or phonetic spelling (if applicable).
-3. 1-2 natural example sentences.
-
-Format the output clearly. Return ONLY the flashcard back side content.`
+  const prompt = `Task: Provide a concise English definition for "${front}" based on context: "${context}".
+STRICT RULE: Do NOT use the word "${front}" in the definition and DO NOT provide detailed explanation of how the word means inside the context.`
 
   return await callAiApi(prompt, settings)
 }

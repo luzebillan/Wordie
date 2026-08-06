@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+@custom-variant monochrome (&:where(.monochrome, .monochrome *));
 
 :root {
   --text: #6b6375;
@@ -45,6 +46,104 @@
   --social-bg: rgba(47, 48, 58, 0.5);
   --shadow:
     rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+}
+
+/* Monochrome theme variables (Default) */
+:root.monochrome {
+  --text: #555555;
+  --text-h: #111111;
+  --bg: #ffffff;
+  --border: #e0e0e0;
+  --code-bg: #f5f5f5;
+  --accent: #333333;
+  --accent-bg: rgba(0, 0, 0, 0.05);
+  --accent-border: rgba(0, 0, 0, 0.2);
+  --social-bg: rgba(0, 0, 0, 0.05);
+  
+  /* Map all primary UI colors to gray */
+  --color-purple-50: var(--color-gray-100);
+  --color-purple-100: var(--color-gray-200);
+  --color-purple-200: var(--color-gray-300);
+  --color-purple-300: var(--color-gray-400);
+  --color-purple-400: var(--color-gray-500);
+  --color-purple-500: var(--color-gray-600);
+  --color-purple-600: var(--color-gray-700);
+  --color-purple-700: var(--color-gray-800);
+  --color-purple-800: var(--color-gray-900);
+  --color-purple-900: #111111;
+  --color-purple-950: #000000;
+
+  --color-blue-50: var(--color-gray-100);
+  --color-blue-100: var(--color-gray-200);
+  --color-blue-200: var(--color-gray-300);
+  --color-blue-300: var(--color-gray-400);
+  --color-blue-400: var(--color-gray-500);
+  --color-blue-500: var(--color-gray-600);
+  --color-blue-600: var(--color-gray-700);
+  --color-blue-700: var(--color-gray-800);
+  --color-blue-800: var(--color-gray-900);
+  --color-blue-900: #111111;
+  --color-blue-950: #000000;
+
+  --color-orange-50: var(--color-gray-100);
+  --color-orange-100: var(--color-gray-200);
+  --color-orange-200: var(--color-gray-300);
+  --color-orange-300: var(--color-gray-400);
+  --color-orange-400: var(--color-gray-500);
+  --color-orange-500: var(--color-gray-600);
+  --color-orange-600: var(--color-gray-700);
+  --color-orange-700: var(--color-gray-800);
+  --color-orange-800: var(--color-gray-900);
+  --color-orange-900: #111111;
+  --color-orange-950: #000000;
+
+  --color-indigo-50: var(--color-gray-100);
+  --color-indigo-100: var(--color-gray-200);
+  --color-indigo-200: var(--color-gray-300);
+  --color-indigo-300: var(--color-gray-400);
+  --color-indigo-400: var(--color-gray-500);
+  --color-indigo-500: var(--color-gray-600);
+  --color-indigo-600: var(--color-gray-700);
+  --color-indigo-700: var(--color-gray-800);
+  --color-indigo-800: var(--color-gray-900);
+  --color-indigo-900: #111111;
+  --color-indigo-950: #000000;
+
+  --color-red-50: var(--color-gray-100);
+  --color-red-100: var(--color-gray-200);
+  --color-red-200: var(--color-gray-300);
+  --color-red-300: var(--color-gray-400);
+  --color-red-400: var(--color-gray-500);
+  --color-red-500: var(--color-gray-600);
+  --color-red-600: var(--color-gray-700);
+  --color-red-700: var(--color-gray-800);
+  --color-red-800: var(--color-gray-900);
+  --color-red-900: #111111;
+  --color-red-950: #000000;
+
+  --color-green-50: var(--color-gray-100);
+  --color-green-100: var(--color-gray-200);
+  --color-green-200: var(--color-gray-300);
+  --color-green-300: var(--color-gray-400);
+  --color-green-400: var(--color-gray-500);
+  --color-green-500: var(--color-gray-600);
+  --color-green-600: var(--color-gray-700);
+  --color-green-700: var(--color-gray-800);
+  --color-green-800: var(--color-gray-900);
+  --color-green-900: #111111;
+  --color-green-950: #000000;
+}
+
+:root.monochrome.dark {
+  --text: #a0a0a0;
+  --text-h: #eeeeee;
+  --bg: #121212;
+  --border: #333333;
+  --code-bg: #1a1a1a;
+  --accent: #cccccc;
+  --accent-bg: rgba(255, 255, 255, 0.1);
+  --accent-border: rgba(255, 255, 255, 0.2);
+  --social-bg: rgba(255, 255, 255, 0.05);
 }
 
 #social .button-icon {

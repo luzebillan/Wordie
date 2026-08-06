@@ -8,17 +8,24 @@ function App() {
   const [showSplash, setShowSplash] = useState<boolean | null>(null)
 
   useEffect(() => {
-    const applyTheme = (theme: string) => {
+    const applyTheme = (theme: string, themeColor: string) => {
       if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.classList.add('dark')
       } else {
         document.documentElement.classList.remove('dark')
       }
+      
+      if (themeColor === 'colorful') {
+        document.documentElement.classList.remove('monochrome')
+      } else {
+        document.documentElement.classList.add('monochrome')
+      }
     }
 
     window.ipcRenderer.getSettings().then(settings => {
       const theme = settings.theme || 'system'
-      applyTheme(theme)
+      const themeColor = settings.themeColor || 'monochrome'
+      applyTheme(theme, themeColor)
 
       if (settings.skipSplashScreen === 'true') {
         setShowSplash(false)
@@ -29,7 +36,7 @@ function App() {
 
     const handleSettingsUpdate = () => {
       window.ipcRenderer.getSettings().then(settings => {
-        applyTheme(settings.theme || 'system')
+        applyTheme(settings.theme || 'system', settings.themeColor || 'monochrome')
       })
     }
     
@@ -38,7 +45,9 @@ function App() {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
     const handleMediaChange = () => {
       window.ipcRenderer.getSettings().then(settings => {
-        if ((settings.theme || 'system') === 'system') applyTheme('system')
+        if ((settings.theme || 'system') === 'system') {
+          applyTheme('system', settings.themeColor || 'monochrome')
+        }
       })
     }
     mediaQuery.addEventListener('change', handleMediaChange)

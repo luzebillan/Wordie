@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { FileText, FolderClock, PenTool, Search, Settings } from 'lucide-react'
 
 interface Stats {
   cardsReviewed: number
@@ -64,9 +65,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
   }, [])
 
   const navItems = [
-    { id: 'new-cards', label: 'New Cards', icon: '📝' },
-    { id: 'revision', label: 'Revision', icon: '🧠' },
-    { id: 'practice', label: 'Practice', icon: '✍️' },
+    { id: 'new-cards', label: 'New Cards', icon: <FileText className="w-5 h-5" /> },
+    { id: 'revision', label: 'Revision', icon: <FolderClock className="w-5 h-5" /> },
+    { id: 'practice', label: 'Practice', icon: <PenTool className="w-5 h-5" /> },
   ]
 
   return (
@@ -81,35 +82,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
         </span>
       </div>
 
-      {/* Nav Tabs */}
-      <nav className="space-y-1 mb-8">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onNavigate(item.id)}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium ${
-              currentView === item.id
-                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            <span className="text-base shrink-0">{item.icon}</span>
-            <span className="truncate">{item.label}</span>
-          </button>
-        ))}
-      </nav>
-
       {/* Sketch Engine Status */}
-      <div className="mb-8 px-2">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Sketch Engine</h3>
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+      <div className="mb-6 px-2">
+        <h3 className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2">Sketch Engine</h3>
+        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
           {sketchUntil ? `Until ${sketchUntil}` : 'Not Configured'}
         </p>
       </div>
 
       {/* Today's Stats */}
-      <div className="mb-8 px-2 space-y-4">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Today</h3>
+      <div className="mb-6 px-2 space-y-3">
+        <h3 className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2">Today</h3>
         
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600 dark:text-gray-400">Cards Reviewed</span>
@@ -123,26 +106,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
         
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600 dark:text-gray-400">Cards To Review</span>
-          <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{stats.cardsToReview}</span>
+          <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{stats.cardsToReview}</span>
         </div>
       </div>
 
-      <div className="flex-1"></div>
-
-      {/* Settings Row */}
-      <div className="mb-4">
-        <button
-          onClick={onOpenSettings}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200"
-        >
-          <span className="text-base">⚙️</span>
-          Settings
-        </button>
-      </div>
-
       {/* Search */}
-      <div ref={searchRef} className="relative z-50">
-        <div className="relative w-full flex items-center">
+      <div ref={searchRef} className="relative z-50 mb-6">
+        <div className="relative w-full flex items-center bg-gray-100 dark:bg-black/40 rounded-lg">
+          <Search className="h-4 w-4 absolute left-3 top-2.5 text-gray-400" />
           <input 
             type="text"
             value={searchQuery}
@@ -157,12 +128,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
                 onNavigate('search', searchQuery.trim())
               }
             }}
-            placeholder="Search..."
-            className="w-full pl-9 pr-8 py-2 bg-gray-100 dark:bg-black/40 border border-transparent focus:border-purple-500 rounded-lg text-sm outline-none transition-all dark:text-gray-200"
+            placeholder="Search"
+            className="w-full pl-9 pr-8 py-2 bg-transparent border border-transparent focus:border-purple-500 rounded-lg text-sm outline-none transition-all dark:text-gray-200 placeholder:text-gray-400"
           />
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3 top-2.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
           {searchQuery.trim() && (
             <button 
               onClick={() => {
@@ -179,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
         </div>
         {/* Results Dropdown */}
         {showResults && searchQuery.trim() && (
-          <div className="absolute bottom-full mb-2 left-0 w-full md:w-80 max-h-60 overflow-y-auto bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-700 rounded-xl shadow-[0_4px_20px_0_rgba(0,0,0,0.1)] flex flex-col z-50 animate-in fade-in zoom-in-95 duration-200">
+          <div className="absolute top-full mt-2 left-0 w-full md:w-80 max-h-60 overflow-y-auto bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-700 rounded-xl shadow-[0_4px_20px_0_rgba(0,0,0,0.1)] flex flex-col z-50 animate-in fade-in zoom-in-95 duration-200">
             {isSearching ? (
               <div className="p-4 text-center text-sm text-gray-500">Searching...</div>
             ) : searchResults.length > 0 ? (
@@ -204,6 +172,37 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
             )}
           </div>
         )}
+      </div>
+
+      {/* Nav Tabs */}
+      <nav className="space-y-1 mb-8">
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => onNavigate(item.id)}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium ${
+              currentView === item.id
+                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 monochrome:bg-gray-200 monochrome:text-black dark:monochrome:bg-gray-800 dark:monochrome:text-white shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            <span className="text-base shrink-0">{item.icon}</span>
+            <span className="truncate">{item.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="flex-1"></div>
+
+      {/* Settings Row */}
+      <div className="mb-4">
+        <button
+          onClick={onOpenSettings}
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200"
+        >
+          <Settings className="w-5 h-5 shrink-0" />
+          Settings
+        </button>
       </div>
     </div>
   )

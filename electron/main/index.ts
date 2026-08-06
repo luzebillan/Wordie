@@ -158,13 +158,15 @@ ipcMain.handle('create-card', (_, card) => dbHandlers.createCard(card))
 ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('get-card', (_, id) => dbHandlers.getCard(id))
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
-ipcMain.handle('search-cards', (_, { front, back }) => dbHandlers.searchCards(front, back))
+ipcMain.handle('search-cards', (_, { front, back, type }) => dbHandlers.searchCards(front, back, type))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
 ipcMain.handle('increment-encounter-count', (_, id) => dbHandlers.incrementEncounterCount(id))
+ipcMain.handle('increment-manual-review-count', (_, id) => dbHandlers.incrementManualReviewCount(id))
 ipcMain.handle('get-due-cards', () => dbHandlers.getDueCards())
 ipcMain.handle('get-random-cards', (_, limit) => dbHandlers.getRandomCards(limit))
 ipcMain.handle('update-card-text', (_, { id, front, back }) => dbHandlers.updateCardText(id, front, back))
 ipcMain.handle('review-card', (_, { id, isCorrect }) => dbHandlers.reviewCard(id, isCorrect))
+ipcMain.handle('get-stats-by-type', (_, type) => dbHandlers.getStatsByType(type))
 
 // Data Management IPCs
 ipcMain.handle('export-data', async () => {

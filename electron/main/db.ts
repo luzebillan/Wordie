@@ -20,6 +20,7 @@ export function initDB() {
       sourceContext TEXT,
       useCount INTEGER DEFAULT 0,
       encounterCount INTEGER DEFAULT 0,
+      manualReviewCount INTEGER DEFAULT 0,
       repetitions INTEGER DEFAULT 0,
       interval INTEGER DEFAULT 0,
       easeFactor REAL DEFAULT 2.5,
@@ -40,6 +41,10 @@ export function initDB() {
   
   try {
     db.exec(`ALTER TABLE cards ADD COLUMN encounterCount INTEGER DEFAULT 0`)
+  } catch (e) { /* Column likely exists */ }
+
+  try {
+    db.exec(`ALTER TABLE cards ADD COLUMN manualReviewCount INTEGER DEFAULT 0`)
   } catch (e) { /* Column likely exists */ }
 
   db.exec(`
@@ -89,16 +94,24 @@ export const dbHandlers = {
     return db.prepare('SELECT * FROM cards WHERE id = ?').get(id)
   },
   
-  searchCards: (front: string, back: string = '') => {
+  searchCards: (front: string, back: string = '', type?: string) => {
     if (!front && !back) return []
     
     // If only front is provided (typing in input), use fast SQL LIKE query
     if (front && !back) {
+      if (type) {
+        return db.prepare("SELECT * FROM cards WHERE type = ? AND (front LIKE ? OR back LIKE ?) ORDER BY createdAt DESC LIMIT 10").all(type, `%${front}%`, `%${front}%`)
+      }
       return db.prepare("SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? ORDER BY createdAt DESC LIMIT 10").all(`%${front}%`, `%${front}%`)
     }
     
     // If back is provided (AI generated), do an in-memory TF-like similarity ranking
-    const allCards = db.prepare("SELECT * FROM cards ORDER BY createdAt DESC").all() as any[]
+    let allCards = []
+    if (type) {
+      allCards = db.prepare("SELECT * FROM cards WHERE type = ? ORDER BY createdAt DESC").all(type) as any[]
+    } else {
+      allCards = db.prepare("SELECT * FROM cards ORDER BY createdAt DESC").all() as any[]
+    }
     
     // ONLY extract tokens from the BACK side (the meaning/definition) to avoid literal string matching from the front side
     const backText = back.toLowerCase()
@@ -172,6 +185,10 @@ export const dbHandlers = {
 
   incrementEncounterCount: (id: number) => {
     db.exec(`UPDATE cards SET encounterCount = encounterCount + 1 WHERE id = ${id}`)
+  },
+
+  incrementManualReviewCount: (id: number) => {
+    db.exec(`UPDATE cards SET manualReviewCount = manualReviewCount + 1 WHERE id = ${id}`)
   },
 
   getDueCards: () => {
@@ -296,6 +313,32 @@ export const dbHandlers = {
       cardsToReview: toReviewCount
     }
   },
+
+  getStatsByType: (type: string) => {
+    const today = new Date().toISOString().split('T')[0]
+    
+    // Cards Reviewed Today
+    const reviewedCountStmt = db.prepare(`
+      SELECT COUNT(DISTINCT r.cardId) as count 
+      FROM review_logs r 
+      JOIN cards c ON r.cardId = c.id 
+      WHERE date(r.reviewDate) = ? AND c.type = ?
+    `)
+    const reviewedCount = (reviewedCountStmt.get(today, type) as any).count
+    
+    // Cards To Review Today
+    const toReviewStmt = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM cards 
+      WHERE type = ? AND (nextReviewDate IS NULL OR date(nextReviewDate) <= ?)
+    `)
+    const toReviewCount = (toReviewStmt.get(type, today) as any).count
+    
+    return {
+      cardsReviewed: reviewedCount,
+      cardsToReview: toReviewCount
+    }
+  },
   
   clearDatabase: () => {
     db.transaction(() => {
@@ -313,8 +356,8 @@ export const dbHandlers = {
     
     const checkStmt = db.prepare('SELECT id FROM cards WHERE front = ? AND type = ?')
     const insertStmt = db.prepare(`
-      INSERT INTO cards (type, front, back, style, label, imageUrl, sourceContext, useCount, encounterCount, repetitions, interval, easeFactor, nextReviewDate, createdAt)
-      VALUES (@type, @front, @back, @style, @label, @imageUrl, @sourceContext, @useCount, @encounterCount, @repetitions, @interval, @easeFactor, @nextReviewDate, @createdAt)
+      INSERT INTO cards (type, front, back, style, label, imageUrl, sourceContext, useCount, encounterCount, manualReviewCount, repetitions, interval, easeFactor, nextReviewDate, createdAt)
+      VALUES (@type, @front, @back, @style, @label, @imageUrl, @sourceContext, @useCount, @encounterCount, @manualReviewCount, @repetitions, @interval, @easeFactor, @nextReviewDate, @createdAt)
     `)
     
     const transaction = db.transaction((cardsToImport: any[]) => {
@@ -336,6 +379,7 @@ export const dbHandlers = {
           sourceContext: card.sourceContext || null,
           useCount: card.useCount || 0,
           encounterCount: card.encounterCount || 0,
+          manualReviewCount: card.manualReviewCount || 0,
           repetitions: card.repetitions || 0,
           interval: card.interval || 0,
           easeFactor: card.easeFactor || 2.5,

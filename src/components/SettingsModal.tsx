@@ -11,6 +11,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // General State
   const [showSplash, setShowSplash] = useState(true)
   const [theme, setTheme] = useState('system')
+  const [themeColor, setThemeColor] = useState('monochrome')
 
   // API State
   const [apiKey, setApiKey] = useState('')
@@ -36,24 +37,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (settings.sketchEngineValidUntil) setValidUntil(settings.sketchEngineValidUntil)
         if (settings.skipSplashScreen) setShowSplash(settings.skipSplashScreen !== 'true')
         if (settings.theme) setTheme(settings.theme)
+        if (settings.themeColor) setThemeColor(settings.themeColor)
       })
     }
   }, [isOpen])
 
-  const handleSave = async () => {
-    await window.ipcRenderer.saveSettings({
-      sketchEngineKey: apiKey,
-      sketchEngineUrl: apiUrl,
-      aiUrl,
-      aiKey,
-      aiModel,
-      skipSplashScreen: showSplash ? 'false' : 'true',
-      theme,
-      ...(validUntil ? { sketchEngineValidUntil: validUntil } : {})
-    })
+  const autoSave = async (key: string, value: string) => {
+    await window.ipcRenderer.saveSettings({ [key]: value })
     window.dispatchEvent(new Event('settings-updated'))
-    showToast('Settings saved successfully', 'success')
-    setTimeout(onClose, 1500)
   }
 
   const handleValidate = async () => {
@@ -190,24 +181,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Show the welcome animation and today's overview when launching the app.</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={showSplash} onChange={e => setShowSplash(e.target.checked)} />
+                    <input type="checkbox" className="sr-only peer" checked={showSplash} onChange={e => {
+                      setShowSplash(e.target.checked)
+                      autoSave('skipSplashScreen', e.target.checked ? 'false' : 'true')
+                    }} />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
                   </label>
                 </div>
                 
                 <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
                   <div>
-                    <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Theme</h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Choose the appearance of the application.</p>
+                    <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Appearance</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Light or dark mode.</p>
                   </div>
                   <select 
                     value={theme}
-                    onChange={e => setTheme(e.target.value)}
+                    onChange={e => {
+                      setTheme(e.target.value)
+                      autoSave('theme', e.target.value)
+                    }}
                     className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 transition-all"
                   >
                     <option value="system">System Default</option>
                     <option value="light">Light Mode</option>
                     <option value="dark">Dark Mode</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Theme Color</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Colorful or monochrome.</p>
+                  </div>
+                  <select 
+                    value={themeColor}
+                    onChange={e => {
+                      setThemeColor(e.target.value)
+                      autoSave('themeColor', e.target.value)
+                    }}
+                    className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+                  >
+                    <option value="monochrome">Monochrome (Default)</option>
+                    <option value="colorful">Colorful</option>
                   </select>
                 </div>
               </div>
@@ -228,6 +243,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       type="text" 
                       value={apiUrl}
                       onChange={e => setApiUrl(e.target.value)}
+                      onBlur={() => autoSave('sketchEngineUrl', apiUrl)}
                       className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all dark:text-white"
                       placeholder="https://api.sketchengine.eu/..."
                     />
@@ -243,6 +259,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         type="password" 
                         value={apiKey}
                         onChange={e => setApiKey(e.target.value)}
+                        onBlur={() => autoSave('sketchEngineKey', apiKey)}
                         className="flex-1 px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all dark:text-white"
                         placeholder="Enter your API key"
                       />
@@ -280,6 +297,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       type="text" 
                       value={aiUrl || ''}
                       onChange={e => setAiUrl(e.target.value)}
+                      onBlur={() => autoSave('aiUrl', aiUrl)}
                       className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white text-sm"
                       placeholder="https://api.openai.com/v1"
                     />
@@ -293,6 +311,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       type="password" 
                       value={aiKey || ''}
                       onChange={e => setAiKey(e.target.value)}
+                      onBlur={() => autoSave('aiKey', aiKey)}
                       className="w-full px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white text-sm"
                       placeholder="sk-..."
                     />
@@ -307,6 +326,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         type="text" 
                         value={aiModel}
                         onChange={e => setAiModel(e.target.value)}
+                        onBlur={() => autoSave('aiModel', aiModel)}
                         className="flex-1 px-4 py-2 bg-white/50 dark:bg-black/20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white text-sm"
                         placeholder="gpt-4o"
                       />
@@ -371,21 +391,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 bg-gray-50/50 dark:bg-black/20 border-t border-gray-200/50 dark:border-gray-700/50 flex justify-end gap-3">
-          <button 
-            onClick={onClose}
-            className="px-5 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-medium"
-          >
-            Cancel
-          </button>
-          <button 
-            onClick={handleSave}
-            className="px-6 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 text-white font-medium shadow-lg shadow-purple-500/30 transition-all transform hover:scale-105 active:scale-95"
-          >
-            Save Changes
-          </button>
-        </div>
+        {/* Footer removed per user requirement: no Cancel/Save buttons */}
 
         {/* Toast Notification */}
         {toast && (
