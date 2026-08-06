@@ -118,6 +118,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
     }
   }
 
+  return (
     <div className="flex flex-col h-full animate-in fade-in duration-500">
       {/* Progress Bar - Spans Full Width at the Top */}
       <div className="mb-4">
@@ -281,7 +282,9 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
               </div>
             )}
           </div>
+        )}
       </div>
     </div>
+  </div>
   )
 }
