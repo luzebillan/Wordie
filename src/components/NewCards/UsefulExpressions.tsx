@@ -219,28 +219,34 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
           </div>
         ) : (
           <div className="w-full h-full flex flex-col">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Similar Expressions</h3>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Similar Cards</h3>
             <div className="flex-1 overflow-y-auto space-y-4 pr-2">
               {similarCards.map((card) => (
                 <div 
                   key={card.id} 
-                  className="bg-white dark:bg-[#1f2028] p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-500 transition-colors"
+                  className="bg-white dark:bg-[#1f2028] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-gray-300 dark:hover:border-gray-600 transition-colors flex flex-col overflow-hidden"
                   onClick={() => onNavigate && onNavigate('revision', card.id)}
                 >
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold text-purple-600 dark:text-purple-400">{card.front}</h4>
+                  <div className="p-4 pb-3">
+                    <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{card.front}</h4>
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3 mb-3">
-                    {card.back}
-                  </p>
-                  <div className="flex justify-between items-center text-sm font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
-                    <span>{(card.repetitions || 0) + (card.manualReviewCount || 0)} Reviews</span>
+                  
+                  <div className="border-t border-dotted border-gray-200 dark:border-gray-700 w-full" />
+                  
+                  <div className="p-4 pt-3">
+                    <p className="text-sm text-gray-800 dark:text-gray-300 line-clamp-2">
+                      {card.back}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-gray-50 dark:bg-gray-800/80 px-4 py-2 flex items-center gap-2">
+                    <span className="text-xs text-gray-400">{(card.repetitions || 0) + (card.manualReviewCount || 0)} Reviews</span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleIncrementManualReviewCount(card.id);
                       }}
-                      className="px-3 py-1 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 rounded transition-colors"
+                      className="px-2 py-0.5 bg-gray-600 hover:bg-gray-700 text-white dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-xs font-bold transition-colors shadow-sm"
                     >
                       +1
                     </button>
