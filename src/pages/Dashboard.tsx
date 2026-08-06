@@ -14,6 +14,22 @@ export const Dashboard: React.FC = () => {
   const [viewProps, setViewProps] = useState<any>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [newCardsTab, setNewCardsTab] = useState('Useful Expressions')
+  const [stats, setStats] = useState({ cardsReviewed: 0, cardsToReview: 0 })
+
+  const fetchStats = async () => {
+    try {
+      const data = await window.ipcRenderer.getStatsByType(newCardsTab)
+      setStats(data)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  React.useEffect(() => {
+    if (currentView === 'new-cards') {
+      fetchStats()
+    }
+  }, [newCardsTab, currentView])
 
   const handleNavigate = (view: string, props?: any) => {
     setCurrentView(view)
@@ -35,6 +51,31 @@ export const Dashboard: React.FC = () => {
           
           {/* Keep new-cards alive in the DOM to preserve form state */}
           <div style={{ display: currentView === 'new-cards' ? 'flex' : 'none' }} className="flex-col h-full space-y-4 w-full">
+            
+            {/* Progress Bar - Spans Full Width at the Top */}
+            <div className="mb-2">
+              <div className="flex items-center gap-4 text-xs font-medium text-gray-500 mb-2">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                  Reviewed {stats.cardsReviewed}
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+                  To Review {stats.cardsToReview}
+                </span>
+              </div>
+              <div className="h-0.5 w-full bg-gray-200 dark:bg-gray-800 flex">
+                {stats.cardsReviewed + stats.cardsToReview > 0 ? (
+                  <div 
+                    className="bg-gray-400 dark:bg-gray-500 h-full transition-all duration-500" 
+                    style={{ width: `${(stats.cardsReviewed / (stats.cardsReviewed + stats.cardsToReview)) * 100}%` }}
+                  />
+                ) : (
+                  <div className="bg-gray-400 dark:bg-gray-500 h-full w-0" />
+                )}
+              </div>
+            </div>
+
             {/* Tabs */}
             <div className="flex space-x-2 pb-2">
               {['Useful Expressions', 'Glossary', 'Daily Words', 'Ready Versions'].map(tab => (
@@ -55,7 +96,7 @@ export const Dashboard: React.FC = () => {
             {/* Sub Content */}
             <div className="flex-1 overflow-y-auto pr-2">
               <div style={{ display: newCardsTab === 'Useful Expressions' ? 'block' : 'none', height: '100%' }}>
-                <UsefulExpressions onNavigate={handleNavigate} />
+                <UsefulExpressions onNavigate={handleNavigate} onUpdateStats={fetchStats} />
               </div>
               <div style={{ display: newCardsTab === 'Glossary' ? 'block' : 'none', height: '100%' }}>
                 <Glossary onNavigate={handleNavigate} />
