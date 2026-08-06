@@ -35,8 +35,6 @@ export const Dashboard: React.FC = () => {
           
           {/* Keep new-cards alive in the DOM to preserve form state */}
           <div style={{ display: currentView === 'new-cards' ? 'flex' : 'none' }} className="flex-col h-full space-y-4 w-full">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Create New Cards</h2>
-            
             {/* Tabs */}
             <div className="flex space-x-2 pb-2">
               {['Useful Expressions', 'Glossary', 'Daily Words', 'Ready Versions'].map(tab => (

@@ -118,27 +118,34 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
     }
   }
 
-  return (
-    <div className="flex h-full animate-in fade-in duration-500">
-      {/* Left Panel: Form */}
-      <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
-        {/* Progress Bar */}
-        <div className="mb-6 flex items-center gap-4">
-          <div className="h-1 flex-1 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden flex">
-            {stats.cardsReviewed + stats.cardsToReview > 0 ? (
-              <div 
-                className="bg-purple-600 dark:bg-purple-500 h-full transition-all duration-500" 
-                style={{ width: `${(stats.cardsReviewed / (stats.cardsReviewed + stats.cardsToReview)) * 100}%` }}
-              />
-            ) : (
-              <div className="bg-purple-600 dark:bg-purple-500 h-full w-0" />
-            )}
-          </div>
-          <div className="text-xs text-gray-500 flex gap-2">
-            <span>Reviewed {stats.cardsReviewed}</span>
-            <span>To Review {stats.cardsToReview}</span>
-          </div>
+    <div className="flex flex-col h-full animate-in fade-in duration-500">
+      {/* Progress Bar - Spans Full Width at the Top */}
+      <div className="mb-4">
+        <div className="flex items-center gap-4 text-xs font-medium text-gray-500 mb-2">
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+            Reviewed {stats.cardsReviewed}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+            To Review {stats.cardsToReview}
+          </span>
         </div>
+        <div className="h-0.5 w-full bg-gray-200 dark:bg-gray-800 flex">
+          {stats.cardsReviewed + stats.cardsToReview > 0 ? (
+            <div 
+              className="bg-gray-400 dark:bg-gray-500 h-full transition-all duration-500" 
+              style={{ width: `${(stats.cardsReviewed / (stats.cardsReviewed + stats.cardsToReview)) * 100}%` }}
+            />
+          ) : (
+            <div className="bg-gray-400 dark:bg-gray-500 h-full w-0" />
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Panel: Form */}
+        <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
 
         {/* Context */}
         <div className="mb-6">
@@ -274,7 +281,6 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
               </div>
             )}
           </div>
-        )}
       </div>
     </div>
   )
