@@ -24,14 +24,16 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   getCards: () => ipcRenderer.invoke('get-cards'),
   getCard: (id: number) => ipcRenderer.invoke('get-card', id),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
-  searchCards: (front: string, back: string = '') => ipcRenderer.invoke('search-cards', { front, back }),
+  searchCards: (front: string, back: string = '', type?: string) => ipcRenderer.invoke('search-cards', { front, back, type }),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
   incrementEncounterCount: (id: number) => ipcRenderer.invoke('increment-encounter-count', id),
+  incrementManualReviewCount: (id: number) => ipcRenderer.invoke('increment-manual-review-count', id),
   getDueCards: () => ipcRenderer.invoke('get-due-cards'),
   getRandomCards: (limit?: number) => ipcRenderer.invoke('get-random-cards', limit),
   updateCardText: (id: number, front: string, back: string) => ipcRenderer.invoke('update-card-text', { id, front, back }),
   reviewCard: (id: number, isCorrect: boolean) => ipcRenderer.invoke('review-card', { id, isCorrect }),
   getStats: () => ipcRenderer.invoke('get-stats'),
+  getStatsByType: (type: string) => ipcRenderer.invoke('get-stats-by-type', type),
   
   // Data APIs
   exportData: () => ipcRenderer.invoke('export-data'),
