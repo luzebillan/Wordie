@@ -28,8 +28,8 @@ interface Window {
     
     // AI APIs
     generateExpression: (context: string, style: string, front: string) => Promise<{success: boolean; result?: string; error?: string}>
-    generateGlossary: (domain: string, front: string) => Promise<{success: boolean; result?: string; error?: string}>
-    generateDailyWord: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
+    generateGlossary: (labels: string[], term: string) => Promise<{success: boolean; result?: string; error?: string}>
+    generateDailyWord: (payload: { picture?: string; context?: string; front?: string }) => Promise<{success: boolean; result?: string; error?: string}>
     generateReadyVersion: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
     aiRewritePractice: (text: string, targetWords: string[]) => Promise<{success: boolean; result?: string; error?: string}>
 

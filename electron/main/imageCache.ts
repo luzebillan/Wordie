@@ -14,45 +14,35 @@ export function getImagesDir() {
 }
 
 export async function downloadImage(url: string): Promise<{ success: boolean; filename?: string; error?: string }> {
-  return new Promise((resolve) => {
-    try {
-      const isHttps = url.startsWith('https://')
-      const client = isHttps ? https : http
-
-      client.get(url, (res) => {
-        if (res.statusCode !== 200) {
-          resolve({ success: false, error: `Failed to download image. Status code: ${res.statusCode}` })
-          return
-        }
-
-        const contentType = res.headers['content-type'] || ''
-        let ext = '.png'
-        if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = '.jpg'
-        else if (contentType.includes('gif')) ext = '.gif'
-        else if (contentType.includes('webp')) ext = '.webp'
-
-        const uniqueFilename = `img_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`
-        const filePath = path.join(getImagesDir(), uniqueFilename)
-        const fileStream = fs.createWriteStream(filePath)
-
-        res.pipe(fileStream)
-
-        fileStream.on('finish', () => {
-          fileStream.close()
-          resolve({ success: true, filename: uniqueFilename })
-        })
-
-        fileStream.on('error', (err) => {
-          fs.unlink(filePath, () => {})
-          resolve({ success: false, error: err.message })
-        })
-      }).on('error', (err) => {
-        resolve({ success: false, error: err.message })
-      })
-    } catch (err: any) {
-      resolve({ success: false, error: err.message })
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+      }
+    })
+    
+    if (!res.ok) {
+      return { success: false, error: `Failed to download image. Status code: ${res.status}` }
     }
-  })
+    
+    const contentType = res.headers.get('content-type') || ''
+    let ext = '.png'
+    if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = '.jpg'
+    else if (contentType.includes('gif')) ext = '.gif'
+    else if (contentType.includes('webp')) ext = '.webp'
+
+    const uniqueFilename = `img_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`
+    const filePath = path.join(getImagesDir(), uniqueFilename)
+    
+    const arrayBuffer = await res.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    fs.writeFileSync(filePath, buffer)
+    
+    return { success: true, filename: uniqueFilename }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
 }
 
 export async function uploadLocalImage(window: Electron.BrowserWindow): Promise<{ success: boolean; filename?: string; error?: string }> {

@@ -48,8 +48,8 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 
   // AI APIs
   generateExpression: (context: string, style: string, front: string) => ipcRenderer.invoke('generate-expression', { context, style, front }),
-  generateGlossary: (domain: string, front: string) => ipcRenderer.invoke('generate-glossary', { domain, front }),
-  generateDailyWord: (front: string) => ipcRenderer.invoke('generate-daily-word', { front }),
+  generateGlossary: (labels: string[], term: string) => ipcRenderer.invoke('generate-glossary', { labels, term }),
+  generateDailyWord: (payload: { picture?: string; context?: string; front?: string }) => ipcRenderer.invoke('generate-daily-word', payload),
   generateReadyVersion: (front: string) => ipcRenderer.invoke('generate-ready-version', { front }),
   aiRewritePractice: (text: string, targetWords: string[]) => ipcRenderer.invoke('ai-rewrite-practice', { text, targetWords }),
 

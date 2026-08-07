@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { FuzzyMatchList } from './FuzzyMatchList'
 
 interface UsefulExpressionsProps {
   onNavigate?: (view: string, props?: any) => void;
@@ -181,7 +182,9 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
               disabled={isGenerating || !front}
               className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-100 hover:bg-black dark:hover:bg-white text-white dark:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
-              <span>✨</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
+              </svg>
               {isGenerating ? 'Generating...' : 'Back Side'}
             </button>
             {error && <span className="text-red-500 text-sm">{error}</span>}
@@ -209,59 +212,13 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
       </div>
 
       {/* Right Panel: Duplicate Checker */}
-      <div className="w-80 bg-gray-100/50 dark:bg-[#16171d] rounded-2xl p-6 flex flex-col items-center justify-center border border-gray-200 dark:border-gray-800">
-        {similarCards.length === 0 ? (
-          <div className="text-center opacity-50 flex flex-col items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 mb-4">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-            </svg>
-            <p className="text-lg font-medium">No Similar Expressions Found</p>
-          </div>
-        ) : (
-          <div className="w-full h-full flex flex-col">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Similar Cards</h3>
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-              {similarCards.map((card) => (
-                <div 
-                  key={card.id} 
-                  className="bg-white dark:bg-[#1f2028] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-gray-300 dark:hover:border-gray-600 transition-colors flex flex-col overflow-hidden"
-                  onClick={() => onNavigate && onNavigate('revision', card.id)}
-                >
-                  <div className="p-4 pb-3">
-                    <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{card.front}</h4>
-                  </div>
-                  
-                  <div className="border-t border-dotted border-gray-200 dark:border-gray-700 w-full" />
-                  
-                  <div className="p-4 pt-3">
-                    <p className="text-sm text-gray-800 dark:text-gray-300 line-clamp-2">
-                      {card.back}
-                    </p>
-                  </div>
-                  
-                  <div className="bg-gray-50 dark:bg-gray-800/80 px-4 py-2 flex items-center gap-2">
-                    <span className="text-xs text-gray-400">{(card.repetitions || 0) + (card.manualReviewCount || 0)} Reviews</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleIncrementManualReviewCount(card.id);
-                      }}
-                      className="px-2 py-0.5 bg-gray-600 hover:bg-gray-700 text-white dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-xs font-bold transition-colors shadow-sm"
-                    >
-                      +1
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {toastMessage && (
-              <div className="mt-4 p-2 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-bold rounded-lg text-center animate-in slide-in-from-bottom-2 fade-in">
-                {toastMessage}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <FuzzyMatchList 
+        similarCards={similarCards}
+        emptyMessage="No Similar Expressions Found"
+        onIncrement={handleIncrementManualReviewCount}
+        onNavigate={onNavigate}
+        toastMessage={toastMessage}
+      />
     </div>
   </div>
   )

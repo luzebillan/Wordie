@@ -1,11 +1,26 @@
 import { useState, useEffect } from 'react'
+import { FuzzyMatchList } from './FuzzyMatchList'
 
 interface GlossaryProps {
   onNavigate?: (view: string, props?: any) => void;
+  onUpdateStats?: () => void;
 }
 
-export const Glossary: React.FC<GlossaryProps> = ({ onNavigate }) => {
-  const [domain, setDomain] = useState('')
+const DOMAINS = [
+  'Science',
+  'Technology and Engineering',
+  'Politics',
+  'Economics and Finance',
+  'Sociology',
+  'Psychology',
+  'Liberal Arts',
+  'Entertainment'
+]
+
+export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats }) => {
+  const [selectedDomain, setSelectedDomain] = useState(DOMAINS[0])
+  const [field, setField] = useState('')
+  const [labels, setLabels] = useState<string[]>([])
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -16,7 +31,7 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate }) => {
   useEffect(() => {
     if (front.trim().length > 1 || back.trim().length > 1) {
       const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim(), back.trim()).then(setSimilarCards)
+        window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Glossary').then(setSimilarCards)
       }, 300)
       return () => clearTimeout(timer)
     } else {
@@ -33,9 +48,16 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate }) => {
     setIsGenerating(true)
     
     try {
-      const res = await window.ipcRenderer.generateGlossary(domain, front)
+      const res = await window.ipcRenderer.generateGlossary(labels, front)
       if (res.success && res.result) {
-        setBack(res.result)
+        try {
+          const parsed = JSON.parse(res.result)
+          setFront(parsed.front)
+          setBack(parsed.back)
+        } catch {
+          // Fallback if somehow it's not the exact JSON structure string we returned
+          setBack(res.result)
+        }
       } else {
         setError(res.error || 'Failed to generate glossary explanation.')
       }
@@ -57,31 +79,42 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate }) => {
         type: 'Glossary',
         front,
         back,
-        sourceContext: domain,
-        label: ''
+        sourceContext: '',
+        label: labels.join(', ')
       })
       
-      setDomain('')
       setFront('')
       setBack('')
+      setLabels([])
+      setField('')
       setError('')
       setSimilarCards([])
+      if (onUpdateStats) onUpdateStats()
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
     }
   }
 
-  const handleIncrementEncounterCount = async (id: number) => {
+  const handleIncrementManualReviewCount = async (id: number) => {
     try {
-      await window.ipcRenderer.incrementEncounterCount(id)
-      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim())
+      await window.ipcRenderer.incrementManualReviewCount(id)
+      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Glossary')
       setSimilarCards(updated)
+      if (onUpdateStats) onUpdateStats()
       
-      setToastMessage('Encounter +1, schedule unchanged')
+      setToastMessage('+1 Added successfully!')
       setTimeout(() => setToastMessage(''), 3000)
     } catch (err: any) {
       console.error(err)
     }
+  }
+
+  const handleAddLabel = () => {
+    const newLabel = field.trim() ? `${selectedDomain}\\${field.trim()}` : selectedDomain
+    if (!labels.includes(newLabel)) {
+      setLabels([...labels, newLabel])
+    }
+    setField('')
   }
 
   return (
@@ -89,16 +122,46 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate }) => {
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
         
-        {/* Domain */}
+        {/* Domain and Field */}
         <div className="mb-6">
           <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Domain / Field</label>
-          <input
-            type="text"
-            value={domain}
-            onChange={e => setDomain(e.target.value)}
-            className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="e.g. IT, Medical, Business"
-          />
+          <div className="flex gap-2 mb-3">
+            <select
+              value={selectedDomain}
+              onChange={e => setSelectedDomain(e.target.value)}
+              className="w-1/2 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+            >
+              {DOMAINS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <input
+              type="text"
+              value={field}
+              onChange={e => setField(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddLabel()}
+              className="w-1/2 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+              placeholder="Custom Field (Optional)"
+            />
+            <button
+              onClick={handleAddLabel}
+              className="px-6 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-2xl font-bold transition-colors"
+            >
+              Add
+            </button>
+          </div>
+          
+          {/* Labels Tags */}
+          {labels.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {labels.map(label => (
+                <span key={label} className="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-sm font-medium">
+                  {label}
+                  <button onClick={() => setLabels(labels.filter(l => l !== label))} className="hover:text-purple-900 dark:hover:text-purple-100">
+                    &times;
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Front Side */}
@@ -121,8 +184,10 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate }) => {
               disabled={isGenerating || !front}
               className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-100 hover:bg-black dark:hover:bg-white text-white dark:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
-              <span>✨</span>
-              {isGenerating ? 'Generating...' : 'Explanation (Back Side)'}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
+              </svg>
+              {isGenerating ? 'Generating...' : 'Back Side'}
             </button>
             {error && <span className="text-red-500 text-sm">{error}</span>}
           </div>
@@ -149,53 +214,13 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate }) => {
       </div>
 
       {/* Right Panel: Duplicate Checker */}
-      <div className="w-80 bg-gray-100/50 dark:bg-[#16171d] rounded-2xl p-6 flex flex-col items-center justify-center border border-gray-200 dark:border-gray-800">
-        {similarCards.length === 0 ? (
-          <div className="text-center opacity-50 flex flex-col items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 mb-4">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-            </svg>
-            <p className="text-lg font-medium">No Similar Terms Found</p>
-          </div>
-        ) : (
-          <div className="w-full h-full flex flex-col">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Similar Cards</h3>
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-              {similarCards.map((card) => (
-                <div 
-                  key={card.id} 
-                  className="bg-white dark:bg-[#1f2028] p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-500 transition-colors"
-                  onClick={() => onNavigate && onNavigate('revision', card.id)}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold text-purple-600 dark:text-purple-400">{card.front}</h4>
-                    <span className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-500">
-                      Encounters: {card.encounterCount || 0}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3 mb-3">
-                    {card.back}
-                  </p>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleIncrementEncounterCount(card.id);
-                    }}
-                    className="w-full py-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    +1 Encounter
-                  </button>
-                </div>
-              ))}
-            </div>
-            {toastMessage && (
-              <div className="mt-4 p-2 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-bold rounded-lg text-center animate-in slide-in-from-bottom-2 fade-in">
-                {toastMessage}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <FuzzyMatchList 
+        similarCards={similarCards}
+        emptyMessage="No Similar Terms Found"
+        onIncrement={handleIncrementManualReviewCount}
+        onNavigate={onNavigate}
+        toastMessage={toastMessage}
+      />
     </div>
   )
 }

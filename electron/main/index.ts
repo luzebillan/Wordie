@@ -233,14 +233,14 @@ ipcMain.handle('generate-expression', async (_, { context, style, front }) => {
   return await aiGenerateExpression(context, style, front, settings)
 })
 
-ipcMain.handle('generate-glossary', async (_, { domain, front }) => {
+ipcMain.handle('generate-glossary', async (_, { labels, term }) => {
   const settings = dbHandlers.getSettings()
-  return await aiGenerateGlossary(domain, front, settings)
+  return await aiGenerateGlossary(labels, term, settings)
 })
 
-ipcMain.handle('generate-daily-word', async (_, { front }) => {
+ipcMain.handle('generate-daily-word', async (_, payload: { picture?: string; context?: string; front?: string }) => {
   const settings = dbHandlers.getSettings()
-  return await aiGenerateDailyWord(front, settings)
+  return await aiGenerateDailyWord(payload, settings)
 })
 
 ipcMain.handle('generate-ready-version', async (_, { front }) => {
