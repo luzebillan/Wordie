@@ -2,25 +2,29 @@ import fs from 'fs'
 import path from 'path'
 import { getImagesDir } from './imageCache'
 
+import { 
+  DEFAULT_PROMPT_GLOSSARY,
+  DEFAULT_PROMPT_DAILY_WORD,
+  DEFAULT_PROMPT_PRACTICE_AI,
+  DEFAULT_PROMPT_REWRITE,
+  DEFAULT_PROMPT_EXPRESSION,
+  DEFAULT_PROMPT_REVISION_CLOZE,
+  DEFAULT_PROMPT_PURE_LISTENER,
+  DEFAULT_PROMPT_PRACTICE_EXTRACT,
+  DEFAULT_PROMPT_PRACTICE_REWRITE,
+  DEFAULT_PROMPT_AI_VERSION,
+  DEFAULT_PROMPT_SYNONYMS
+} from '../../src/constants/prompts'
+
 export async function aiGenerateGlossary(
   labels: string[],
   term: string,
   settings: Record<string, string>
 ): Promise<{ success: boolean; result?: string; error?: string }> {
-  const prompt = `You are an expert encyclopedia for professional interpreters.
-The user wants to know the background knowledge for this term: "${term}" in the fields of ${labels.join(', ')}
-CRITICAL INSTRUCTIONS: 
-1. DO NOT use any external tools, web search, or browsing functions. Rely entirely on your own internal knowledge.
-2. You MUST escape all double quotes inside your definitions using a backslash 
-3. NO LITERAL NEWLINES. If you need a line break in your definition, type "\\n" literally
-4. Ensure perfect JSON syntax.
-Provide a raw JSON response exactly in this format:
-{
-"term_en": "Standard English term",
-"term_cn": "Standard Chinese term",
-"def_en": "Concise 1-2 line explanation in English",
-"def_cn": "Concise 1-2 line explanation in Chinese"
-}`
+  const template = settings['promptGlossary'] || DEFAULT_PROMPT_GLOSSARY
+  const prompt = template
+    .replace('{{term}}', term)
+    .replace('{{labels}}', labels.join(', '))
   const res = await callAiApi(prompt, settings)
   if (!res.success) return res
 
@@ -45,11 +49,7 @@ export async function aiGenerateDailyWord(
 ): Promise<{ success: boolean; result?: string; error?: string }> {
   const { picture, context, front: chineseWord } = payload
 
-  const systemPrompt = `You are an expert bilingual linguist and localization specialist. Your task is to analyze the input to find its best-fit, authentic, natural English counterpart(s).
-The counterpart(s) in English should:
-1. Arouse the same image or convey the same message as it does with Chinese or with the picture
-2. Be legible and make sense across general anglosphere, not only a specific culture
-3. Contemporary English should be highly preferrable, and Internet Slangs are also acceptable in certain cases. Words or expressions that are marked Literary, archaic, biblical, old-fashioned are only acceptable when (1) the Chinese or the picture is itself Literary, archaic, biblical, old-fashioned; (2) they can be a certain rhetorical device.`
+  const systemPrompt = settings['promptDailyWord'] || DEFAULT_PROMPT_DAILY_WORD
 
   let userPrompt = ''
   let imageBase64 = ''
@@ -152,36 +152,18 @@ The counterpart(s) in English should:
 }
 
 export async function aiPracticeAIVersion(text: string, settings: any) {
-  const prompt = `You are an elite, professional conference interpreter. Reinterpret the following transcript into a flawless, concise, native, and highly idiomatic delivery.
-CRITICAL INSTRUCTIONS:
-- Maintain the exact original core message.
-- Express the meaning in a highly concise and native way.
-- Use situation-relevant and idiomatic expressions naturally.
-- Adjust your register (formal, semi-formal, etc.) based appropriately on the implied theme and topic of the text.
-- DO NOT provide explanations or commentary. Return ONLY the polished interpretation.
-- Respond in the exact same language as the transcript.
-
-Source Text:
-${text}`
+  const template = settings['promptPracticeAi'] || DEFAULT_PROMPT_PRACTICE_AI
+  const prompt = template.replace('{{text}}', text)
   
   return callAiApi(prompt, settings)
 }
 
 export async function aiRewritePractice(text: string, targetWords: string[], settings: any) {
   const dbText = targetWords.join('\n')
-  const prompt = `You are a native English speaker who works as an elite professional Simultaneous interpreter. 
-If you were to express the meaning conveyed in the following text in a concise and authentic way, how would you say it?
-Here is a custom vocabulary shortlist pulled from the user's personal database:
-<database>
-${dbText}
-</database>
-While you are rephrasing, some CRITICAL INSTRUCTIONS:
-1. STRICT FIDELITY: Do NOT change the speaker's perspective, point of view, or fundamental context. If the original uses "I" or "we", keep it. You are interpreting their exact message, just polishing the delivery.
-2. DATABASE INTEGRATION: Since the words from the database are what I want to train, so You MUST attempt to naturally integrate provided database expressions.
-3. CONTENT RESTRICTION: You MAY ONLY subtract information or sentences because it is self-implied or common-knowledge according to the context. But you MUSTN'T add information that you cannot guarantee accuracy.
-
-Text:
-${text}`
+  const template = settings['promptRewrite'] || DEFAULT_PROMPT_REWRITE
+  const prompt = template
+    .replace('{{dbText}}', dbText)
+    .replace('{{text}}', text)
 
   return callAiApi(prompt, settings)
 }
@@ -208,37 +190,48 @@ async function callAiApi(prompt: string, settings: Record<string, string>) {
     apiUrl = apiUrl.replace(/\/+$/, '') + '/chat/completions'
   }
 
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 500
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+          max_tokens: 500
+        }),
+        signal: AbortSignal.timeout(60000) // 60s timeout
       })
-    })
 
-    if (!response.ok) {
-      const errorData = await response.text()
-      return { success: false, error: `API Error (${response.status}): ${errorData}` }
+      if (!response.ok) {
+        const errorData = await response.text()
+        return { success: false, error: `API Error (${response.status}): ${errorData}` }
+      }
+
+      const data = await response.json()
+      const result = data.choices?.[0]?.message?.content?.trim()
+
+      if (!result) {
+        return { success: false, error: 'API returned an empty response.' }
+      }
+
+      return { success: true, result }
+    } catch (error: any) {
+      lastError = error;
+      if (attempt === 0) {
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
     }
-
-    const data = await response.json()
-    const result = data.choices?.[0]?.message?.content?.trim()
-
-    if (!result) {
-      return { success: false, error: 'API returned an empty response.' }
-    }
-
-    return { success: true, result }
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Network error occurred.' }
   }
+  
+  const cause = lastError?.cause ? ` (Cause: ${lastError.cause.message || lastError.cause})` : '';
+  return { success: false, error: `${lastError?.name === 'TimeoutError' ? 'Request timed out' : lastError?.message || 'Network error occurred'}${cause}` }
 }
 
 export async function aiGenerateExpression(
@@ -247,8 +240,255 @@ export async function aiGenerateExpression(
   front: string,
   settings: Record<string, string>
 ): Promise<{ success: boolean; result?: string; error?: string }> {
-  const prompt = `Task: Provide a concise English definition for "${front}" based on context: "${context}".
-STRICT RULE: Do NOT use the word "${front}" in the definition and DO NOT provide detailed explanation of how the word means inside the context.`
+  const template = settings['promptExpression'] || DEFAULT_PROMPT_EXPRESSION
+  const prompt = template
+    .replace(/{{front}}/g, front)
+    .replace('{{context}}', context)
 
   return await callAiApi(prompt, settings)
+}
+
+export async function generateRevisionCloze(
+  front: string,
+  back: string,
+  settings: Record<string, string>
+): Promise<{ success: boolean; result?: string; error?: string }> {
+  const sketchApiKey = settings['sketchEngineKey'] || ''
+  const sketchApiUrl = settings['sketchEngineUrl'] || 'https://api.sketchengine.eu/bonito/run.cgi'
+  if (!sketchApiKey) {
+    return { success: false, error: 'Missing Sketch Engine API Key in Settings.' }
+  }
+
+  // 1. Format phrase
+  let clean_phrase = front.replace(/\*/g, " ").toLowerCase()
+  const placeholders = ["someone", "something", "sb.", "sb", "sth.", "sth", "one's", "ones", "oneself", "be"]
+  
+  for (const p of placeholders) {
+    const escaped_p = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`(?<![a-z])${escaped_p}(?![a-z])`, 'g')
+    clean_phrase = clean_phrase.replace(regex, '*')
+  }
+  
+  clean_phrase = clean_phrase.replace(/\s*\*\s*/g, '*')
+  clean_phrase = clean_phrase.replace(/\*+/g, '*').trim()
+  
+  const parts = clean_phrase.split('*')
+  const cql_tokens: string[] = []
+  const search_words: string[] = []
+  
+  parts.forEach((part, i) => {
+    const words = part.split(/\s+/).filter(Boolean)
+    words.forEach(w => {
+      search_words.push(w)
+      if (w.endsWith('s') || w.endsWith('ing') || w.endsWith('ed') || w.endsWith('d') || w.endsWith('es') || w.endsWith('en') || w.endsWith('ought') || w.endsWith('own')) {
+        cql_tokens.push(`[word="(?i)${w}"]`)
+      } else {
+        cql_tokens.push(`[lemma_lc="${w}"]`)
+      }
+    })
+    
+    if (i < parts.length - 1 && words.length > 0) {
+      cql_tokens.push('[]{1,2}')
+    }
+  })
+  
+  const cql_query = cql_tokens.join(' ')
+  
+  let sketchBaseUrl = sketchApiUrl
+  if (sketchBaseUrl.endsWith('/')) {
+    sketchBaseUrl = sketchBaseUrl.slice(0, -1)
+  }
+  if (!sketchBaseUrl.endsWith('/concordance')) {
+    sketchBaseUrl += '/concordance'
+  }
+  const url = `${sketchBaseUrl}?corpname=preloaded/ententen21_tt31&format=json&q=q${encodeURIComponent(cql_query)}&viewmode=sen&attrs=word&ctxattrs=word&refs=doc.url&asyn=0`
+  
+  let clean_snippet = ''
+  
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${sketchApiKey}`, 'Connection': 'close' },
+        signal: AbortSignal.timeout(180000)
+      })
+      
+      if (response.status === 429) {
+        await new Promise(r => setTimeout(r, 5000))
+        continue
+      }
+      if (!response.ok) {
+        break
+      }
+      
+      const data = await response.json()
+      if (data.Lines && data.Lines.length > 0) {
+        const chosen = data.Lines[Math.floor(Math.random() * data.Lines.length)]
+        const raw_data = JSON.stringify(chosen)
+        const match = raw_data.match(/<s>(.*?)<\/s>/i)
+        if (match) {
+          clean_snippet = match[1]
+        } else {
+          const extractStr = (arr: any[]) => arr ? arr.map((i: any) => i.str || '').join('') : ''
+          clean_snippet = extractStr(chosen.Left) + extractStr(chosen.Kwic) + extractStr(chosen.Right)
+        }
+        
+        clean_snippet = clean_snippet.replace(/<[^>]+>/g, '')
+        clean_snippet = clean_snippet.replace(/\s+([.,!?;\):'"”])/g, '$1')
+        clean_snippet = clean_snippet.replace(/([\(\['"“])\s+/g, '$1')
+        clean_snippet = clean_snippet.replace(/\s+/g, ' ').trim()
+        break
+      } else {
+        return { success: false, error: 'Sketch Engine search succeeded, but 0 sentences matched this grammar.' }
+      }
+    } catch (e: any) {
+      if (attempt === 1) return { success: false, error: 'Sketch Engine API crashed: ' + String(e) }
+      await new Promise(r => setTimeout(r, 3000))
+    }
+  }
+
+  if (!clean_snippet) {
+    return { success: false, error: 'Failed to retrieve context from Sketch Engine.' }
+  }
+
+  const display_phrase = front.replace(/\*/g, " ")
+
+  const wordsToBlank = search_words.join(', ')
+
+  const template = settings['promptRevisionCloze'] || DEFAULT_PROMPT_REVISION_CLOZE
+  const aiPrompt = template
+    .replace('{{display_phrase}}', display_phrase)
+    .replace('{{back}}', back)
+    .replace('{{clean_snippet}}', clean_snippet)
+    .replace('{{wordsToBlank}}', wordsToBlank)
+
+  const aiRes = await callAiApi(aiPrompt, settings)
+  if (!aiRes.success || !aiRes.result) {
+    return { success: false, error: 'AI failed to rewrite context: ' + aiRes.error }
+  }
+
+  let rewrittenText = aiRes.result.trim()
+
+  return { success: true, result: rewrittenText }
+}
+
+// -----------------------------------------------------------------------------
+// Practice Module API Functions
+// -----------------------------------------------------------------------------
+
+export async function practicePureListener(text: string, settings: any) {
+  const template = settings['promptPureListener'] || DEFAULT_PROMPT_PURE_LISTENER
+  const prompt = template.replace('{{text}}', text)
+
+  const aiRes = await callAiApi(prompt, settings)
+  if (!aiRes.success || !aiRes.result) {
+    return { success: false, error: 'AI failed to analyze: ' + aiRes.error }
+  }
+  return { success: true, result: aiRes.result.trim() }
+}
+
+export async function practiceRewrite(text: string, settings: any, dbHandlers: any) {
+  // 1. Extract expressions to optimize
+  const rewriteDivider = parseInt(settings.rewriteDivider || '20', 10)
+  const allCards = dbHandlers.searchCards('', 'Useful Expression')
+  const totalCards = allCards.length
+  
+  if (totalCards === 0) {
+    return { success: false, error: 'Your database is empty. Add some Useful Expressions first!' }
+  }
+
+  const targetCount = Math.max(3, Math.ceil(totalCards / rewriteDivider))
+
+  const extractTemplate = settings['promptPracticeExtract'] || DEFAULT_PROMPT_PRACTICE_EXTRACT
+  const extractPrompt = extractTemplate
+    .replace('{{targetCount}}', targetCount.toString())
+    .replace('{{text}}', text)
+
+  const extractRes = await callAiApi(extractPrompt, settings)
+  if (!extractRes.success || !extractRes.result) {
+    return { success: false, error: 'AI failed to extract expressions: ' + extractRes.error }
+  }
+
+  const phrases = extractRes.result.split('|').map((p: string) => p.trim()).filter((p: string) => p.length > 0)
+
+  // 2. Search for relevant cards
+  const matchedCards = new Set<any>()
+  
+  // Use our local semantic search
+  // We'll just search each phrase and take the top result.
+  for (const phrase of phrases) {
+    const results = await dbHandlers.findSimilarCards(phrase, phrase, 'Useful Expression')
+    if (results.length > 0) {
+      matchedCards.add(results[0])
+    }
+  }
+
+  // If we couldn't match enough, pad with random cards
+  const finalCards = Array.from(matchedCards)
+  while (finalCards.length < targetCount && finalCards.length < totalCards) {
+    const randomCard = allCards[Math.floor(Math.random() * allCards.length)]
+    if (!finalCards.find(c => c.id === randomCard.id)) {
+      finalCards.push(randomCard)
+    }
+  }
+
+  // 3. Force integrate matched cards
+  const cardsContext = finalCards.map(c => `- ${c.front}: ${c.back}`).join('\n')
+  
+  const rewriteTemplate = settings['promptPracticeRewrite'] || DEFAULT_PROMPT_PRACTICE_REWRITE
+  const rewritePrompt = rewriteTemplate
+    .replace('{{cardsContext}}', cardsContext)
+    .replace('{{text}}', text)
+
+  const rewriteRes = await callAiApi(rewritePrompt, settings)
+  if (!rewriteRes.success || !rewriteRes.result) {
+    return { success: false, error: 'AI failed to rewrite text: ' + rewriteRes.error }
+  }
+
+  return { success: true, result: { text: rewriteRes.result.trim(), cards: finalCards } }
+}
+
+export async function practiceAiVersion(text: string, settings: any) {
+  const template = settings['promptAiVersion'] || DEFAULT_PROMPT_AI_VERSION
+  const prompt = template.replace('{{text}}', text)
+
+  const aiRes = await callAiApi(prompt, settings)
+  if (!aiRes.success || !aiRes.result) {
+    return { success: false, error: 'AI failed to generate elite version: ' + aiRes.error }
+  }
+  return { success: true, result: aiRes.result.trim() }
+}
+
+export async function aiFilterSynonyms(
+  targetFront: string,
+  targetBack: string,
+  candidates: any[],
+  settings: any
+): Promise<{ success: boolean; result?: string[]; error?: string }> {
+  // Construct candidates string
+  const candidatesStr = candidates.map(c => `[ID: ${c.id}] Word: ${c.front}\nDefinition: ${c.back}`).join('\n\n')
+
+  const template = settings['promptSynonyms'] || DEFAULT_PROMPT_SYNONYMS
+  const prompt = template
+    .replace('{{targetFront}}', targetFront)
+    .replace('{{targetBack}}', targetBack)
+    .replace('{{candidatesStr}}', candidatesStr)
+
+  const aiRes = await callAiApi(prompt, settings)
+  if (!aiRes.success || !aiRes.result) {
+    return { success: false, error: 'AI failed to filter synonyms: ' + aiRes.error }
+  }
+
+  try {
+    let jsonStr = aiRes.result.trim()
+    const match = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    if (match) {
+      jsonStr = match[1]
+    }
+    const ids = JSON.parse(jsonStr)
+    if (!Array.isArray(ids)) throw new Error('Result is not an array')
+    // Ensure all IDs are parsed as numbers/strings properly so they match candidate IDs
+    return { success: true, result: ids.map(id => String(id)) }
+  } catch (err: any) {
+    return { success: false, error: 'Failed to parse AI response as JSON array: ' + aiRes.result }
+  }
 }

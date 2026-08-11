@@ -1,6 +1,10 @@
 import Database from 'better-sqlite3'
 import path from 'node:path'
 import { app } from 'electron'
+import { getEmbedding } from './semantic'
+import { addCardVector, updateCardVector, deleteCardVector, searchCardVectors, clearVectorTable } from './vector_db'
+import natural from 'natural'
+import { aiFilterSynonyms } from './ai'
 
 // Initialize the database in the user data directory
 const dbPath = path.join(app.getPath('userData'), 'cardsapp.sqlite')
@@ -47,6 +51,36 @@ export function initDB() {
     db.exec(`ALTER TABLE cards ADD COLUMN manualReviewCount INTEGER DEFAULT 0`)
   } catch (e) { /* Column likely exists */ }
 
+  try {
+    db.exec(`ALTER TABLE cards ADD COLUMN embedding TEXT`)
+  } catch (e) { /* Column likely exists */ }
+
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
+      front, back, label,
+      content='cards', content_rowid='id'
+    )
+  `)
+
+  // Populate FTS table if it's empty
+  const count = db.prepare('SELECT COUNT(*) as c FROM cards_fts').get() as {c: number};
+  if (count.c === 0) {
+    db.exec(`INSERT INTO cards_fts(cards_fts) VALUES ('rebuild');`);
+  }
+
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS cards_ai AFTER INSERT ON cards BEGIN
+      INSERT INTO cards_fts(rowid, front, back, label) VALUES (new.id, new.front, new.back, new.label);
+    END;
+    CREATE TRIGGER IF NOT EXISTS cards_ad AFTER DELETE ON cards BEGIN
+      INSERT INTO cards_fts(cards_fts, rowid, front, back, label) VALUES ('delete', old.id, old.front, old.back, old.label);
+    END;
+    CREATE TRIGGER IF NOT EXISTS cards_au AFTER UPDATE ON cards BEGIN
+      INSERT INTO cards_fts(cards_fts, rowid, front, back, label) VALUES ('delete', old.id, old.front, old.back, old.label);
+      INSERT INTO cards_fts(rowid, front, back, label) VALUES (new.id, new.front, new.back, new.label);
+    END;
+  `)
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
@@ -64,11 +98,64 @@ export function initDB() {
       FOREIGN KEY(cardId) REFERENCES cards(id) ON DELETE CASCADE
     )
   `)
+
+  try {
+    db.exec(`ALTER TABLE review_logs ADD COLUMN previousState TEXT`)
+  } catch (e) { /* Column likely exists */ }
+  
+  // Async migration for vectors
+  migrateVectors();
+}
+
+async function migrateVectors() {
+  const settingsRow = db.prepare(`SELECT value FROM settings WHERE key = 'semantic_model_version'`).get() as any;
+  const version = settingsRow?.value;
+  
+  if (version !== 'minilm_v1') {
+    console.log("Migrating vector database to new model: Xenova/all-MiniLM-L6-v2");
+    await clearVectorTable();
+    
+    const cards = db.prepare('SELECT id, front, back, type FROM cards').all() as any[];
+    for (const card of cards) {
+      if (card.front && card.back) {
+        await addCardVector(card.id, card.front, card.back, card.type);
+      }
+    }
+    
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('semantic_model_version', 'minilm_v1')`).run();
+    console.log("Migration complete.");
+  }
+}
+
+// Embedding cache logic replaced by LanceDB
+
+// Helper: Lexical Overlap for Two-Stage Retrieval Precision
+const tokenizer = new natural.WordTokenizer();
+const stopWords = new Set(["a", "an", "the", "and", "or", "but", "if", "because", "as", "what", "which", "this", "that", "these", "those", "then", "just", "so", "than", "such", "both", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "can", "will", "just", "don", "should", "now", "feeling", "someone", "something", "cause", "causing", "express", "expressing", "feel", "make", "person"]);
+
+function getLexicalOverlap(text1: string, text2: string): number {
+  if (!text1 || !text2) return 0;
+  
+  const tokens1 = tokenizer.tokenize(text1.toLowerCase()) || [];
+  const tokens2 = tokenizer.tokenize(text2.toLowerCase()) || [];
+  
+  const set1 = new Set(tokens1.filter(t => !stopWords.has(t) && t.length > 2).map(t => natural.PorterStemmer.stem(t)));
+  const set2 = new Set(tokens2.filter(t => !stopWords.has(t) && t.length > 2).map(t => natural.PorterStemmer.stem(t)));
+  
+  if (set1.size === 0 || set2.size === 0) return 0;
+  
+  let intersection = 0;
+  for (const t of set1) {
+    if (set2.has(t)) intersection++;
+  }
+  
+  const union = set1.size + set2.size - intersection;
+  return intersection / union;
 }
 
 // IPC Handlers implementation for DB operations
 export const dbHandlers = {
-  createCard: (card: any) => {
+  createCard: async (card: any) => {
     const stmt = db.prepare(`
       INSERT INTO cards (type, front, back, style, label, imageUrl, sourceContext, nextReviewDate)
       VALUES (@type, @front, @back, @style, @label, @imageUrl, @sourceContext, @nextReviewDate)
@@ -83,6 +170,10 @@ export const dbHandlers = {
       sourceContext: card.sourceContext || null,
       nextReviewDate: card.nextReviewDate || new Date().toISOString()
     })
+    
+    // Sync vector to LanceDB
+    await addCardVector(result.lastInsertRowid as number, card.front, card.back, card.type)
+    
     return { id: result.lastInsertRowid, ...card }
   },
   
@@ -94,89 +185,100 @@ export const dbHandlers = {
     return db.prepare('SELECT * FROM cards WHERE id = ?').get(id)
   },
   
-  searchCards: (front: string, back: string = '', type?: string) => {
-    if (!front && !back) return []
-    
-    // If only front is provided (typing in input), use fast SQL LIKE query
-    if (front && !back) {
+  searchCards: (query: string = '', type?: string) => {
+    if (!query) {
       if (type) {
-        return db.prepare("SELECT * FROM cards WHERE type = ? AND (front LIKE ? OR back LIKE ?) ORDER BY createdAt DESC LIMIT 10").all(type, `%${front}%`, `%${front}%`)
+        return db.prepare('SELECT * FROM cards WHERE type = ? ORDER BY createdAt DESC').all(type);
       }
-      return db.prepare("SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? ORDER BY createdAt DESC LIMIT 10").all(`%${front}%`, `%${front}%`)
+      return db.prepare('SELECT * FROM cards ORDER BY createdAt DESC').all();
     }
     
-    // If back is provided (AI generated), do an in-memory TF-like similarity ranking
-    let allCards = []
-    if (type) {
-      allCards = db.prepare("SELECT * FROM cards WHERE type = ? ORDER BY createdAt DESC").all(type) as any[]
-    } else {
-      allCards = db.prepare("SELECT * FROM cards ORDER BY createdAt DESC").all() as any[]
-    }
+    // Keyword / Fuzzy string matching using SQLite FTS5 (BM25)
+    const ftsSearchTerms = query.replace(/["]/g, "").trim().split(/\s+/).filter(Boolean);
+    const safeQuery = ftsSearchTerms.map(term => `"${term}"*`).join(' OR ');
     
-    // ONLY extract tokens from the BACK side (the meaning/definition) to avoid literal string matching from the front side
-    const backText = back.toLowerCase()
-    const tokens = new Set<string>()
-    
-    // Basic stop words to ignore
-    const stopWords = new Set([
-      // English stopwords
-      'this', 'that', 'with', 'from', 'your', 'what', 'have', 'meaning', 'translation', 'example', 'sentence', 'context',
-      'when', 'they', 'them', 'there', 'their', 'some', 'about', 'would', 'could', 'should', 'which', 'where', 'whose',
-      'because', 'however', 'therefore', 'then', 'than', 'only', 'very', 'much', 'many', 'more', 'most', 'such', 'into',
-      'been', 'were', 'being', 'does', 'doing', 'done', 'will', 'shall', 'used', 'someone', 'something', 'anyone', 'anything',
-      
-      // Chinese stop bigrams
-      '这个', '那个', '这是', '就是', '我们', '你们', '他们', '可以', '但是', '因为', '所以', '如果', '或者', '并且',
-      '而且', '虽然', '即使', '用于', '表示', '释义', '意思', '例句', '翻译', '解释', '一个', '一种', '一些', '这些',
-      '那些', '非常', '比较', '其实', '只是', '还是', '这样', '那样', '怎么', '什么'
-    ])
-    
-    const engMatch = backText.match(/[a-z]{4,}/g)
-    if (engMatch) {
-      engMatch.forEach(w => {
-        if (!stopWords.has(w)) tokens.add(w)
-      })
-    }
-    
-    const zhChars = backText.match(/[\u4e00-\u9fa5]/g)
-    if (zhChars) {
-      // Create bigrams for Chinese
-      for (let i = 0; i < zhChars.length - 1; i++) {
-        const bigram = zhChars[i] + zhChars[i+1]
-        if (!stopWords.has(bigram)) tokens.add(bigram)
-      }
-    }
-    
-    if (tokens.size === 0) return []
-    
-    const scoredCards = allCards.map(card => {
-      let score = 0
-      
-      // Match against the OTHER card's back side ONLY
-      const otherBackText = (card.back || '').toLowerCase()
-      
-      // Boost exact/partial front match to maintain duplicate checker priority
-      if (front) {
-        if (card.front.toLowerCase() === front.toLowerCase()) {
-          score += 50
-        } else if (card.front.toLowerCase().includes(front.toLowerCase())) {
-          score += 20
+    if (safeQuery) {
+      try {
+        if (type) {
+          return db.prepare(`
+            SELECT c.* FROM cards_fts f 
+            JOIN cards c ON f.rowid = c.id 
+            WHERE f.cards_fts MATCH ? AND c.type = ? 
+            ORDER BY rank LIMIT 15
+          `).all(safeQuery, type);
+        } else {
+          return db.prepare(`
+            SELECT c.* FROM cards_fts f 
+            JOIN cards c ON f.rowid = c.id 
+            WHERE f.cards_fts MATCH ? 
+            ORDER BY rank LIMIT 15
+          `).all(safeQuery);
         }
+      } catch (e) {
+        console.warn("FTS query failed", e);
       }
-      
-      tokens.forEach(token => {
-        if (otherBackText.includes(token)) score += 2 // meaning match gets points
-      })
-      
-      return { card, score }
-    })
+    }
     
-    return scoredCards
-      // Require at least 2 points (either one meaning match, or a literal match)
-      .filter(s => s.score >= 2)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map(s => s.card)
+    return [];
+  },
+  findSimilarCards: async (front: string, back: string = '', type?: string, useLLM: boolean = false) => {
+    if (!front && !back) return [];
+    
+    // We completely remove FTS (Keyword checking) based on user directive.
+    // This feature is for reviewing similar semantic expressions, not keyword duplicate checking.
+    const safeQuery = [front, back].filter(Boolean).join(' ').replace(/[^\w\s\u4e00-\u9fa5]/g, '').trim();
+    if (!safeQuery) return [];
+
+    let semanticResults = [];
+    
+    // Stage 1: Vector Search (High Recall)
+    const semanticQuery = back ? `${front}: ${back}` : front;
+    // Do NOT filter by type for vector search to allow cross-category synonyms
+    const lanceResults = await searchCardVectors(semanticQuery, undefined, 30);
+    
+    const rawScoredCards: { card: any, score: number }[] = [];
+    const allCards = db.prepare('SELECT * FROM cards').all() as any[];
+    const cardsMap = new Map(allCards.map(c => [c.id, c]));
+    
+    for (const r of lanceResults) {
+      const c = cardsMap.get(r.id);
+      if (c) {
+        let score = 1 - ((r._distance || 0) / 2);
+        rawScoredCards.push({ card: c, score });
+      }
+    }
+
+    rawScoredCards.sort((a, b) => b.score - a.score);
+    
+    const BASELINE_FLOOR = 0.60;
+    let candidates = [];
+    for (const item of rawScoredCards) {
+      if (item.card.front.toLowerCase() === (front || '').toLowerCase()) continue;
+      if (item.score >= BASELINE_FLOOR) {
+        candidates.push(item.card);
+      }
+      if (candidates.length >= 15) break; 
+    }
+    
+    const settings = dbHandlers.getSettings();
+
+    // Stage 2: LLM Strict Filtering (Only if explicitly requested and key exists)
+    if (useLLM && settings['aiKey'] && candidates.length > 0) {
+      console.log(`[Semantic Analysis] Sending ${candidates.length} candidates to LLM for strict synonym filtering...`);
+      const aiRes = await aiFilterSynonyms(front, back, candidates, settings);
+      
+      if (aiRes.success && aiRes.result) {
+        const matchedIds = new Set(aiRes.result.map(id => parseInt(id, 10)));
+        semanticResults = candidates.filter(c => matchedIds.has(c.id));
+        console.log(`[Semantic Analysis] LLM returned ${semanticResults.length} strict synonyms.`);
+        return semanticResults.slice(0, 10);
+      } else {
+        console.warn(`[Semantic Analysis] LLM filter failed: ${aiRes.error}. Returning broad candidates.`);
+      }
+    }
+
+    // If useLLM is false (e.g. offline mode) or LLM failed, we can return the broad matches
+    return candidates.slice(0, 10);
   },
   
   incrementUseCount: (id: number) => {
@@ -191,10 +293,12 @@ export const dbHandlers = {
     db.exec(`UPDATE cards SET manualReviewCount = manualReviewCount + 1 WHERE id = ${id}`)
   },
 
-  getDueCards: () => {
-    const today = new Date().toISOString().split('T')[0]
-    const stmt = db.prepare(`SELECT * FROM cards WHERE nextReviewDate IS NULL OR date(nextReviewDate) <= ? ORDER BY RANDOM() LIMIT 50`)
-    return stmt.all(today)
+  getDueCards: (randomize: boolean = false) => {
+    // 3:00 AM day boundary is naturally handled because nextReviewDate has exact times.
+    const now = new Date().toISOString()
+    const orderClause = randomize ? 'RANDOM()' : 'nextReviewDate ASC, id ASC'
+    const stmt = db.prepare(`SELECT * FROM cards WHERE nextReviewDate IS NULL OR nextReviewDate <= ? ORDER BY ${orderClause} LIMIT 50`)
+    return stmt.all(now)
   },
 
   getRandomCards: (limit: number = 8) => {
@@ -202,9 +306,15 @@ export const dbHandlers = {
     return stmt.all(limit)
   },
 
-  updateCardText: (id: number, front: string, back: string) => {
+  updateCardText: async (id: number, front: string, back: string) => {
     const stmt = db.prepare(`UPDATE cards SET front = ?, back = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
     stmt.run(front, back, id)
+    
+    const card = dbHandlers.getCard(id) as any;
+    if (card) {
+      await updateCardVector(id, front, back, card.type)
+    }
+    
     return { success: true }
   },
 
@@ -213,33 +323,57 @@ export const dbHandlers = {
     const card = cardStmt.get(id) as any
     if (!card) return { success: false, error: 'Card not found' }
 
-    let { repetitions, interval, easeFactor } = card
+    let { repetitions, interval, easeFactor, encounterCount } = card
+    const now = new Date();
+    let nextReviewDate = new Date();
+    
+    // Save previous state for undo
+    const previousState = JSON.stringify({
+      repetitions,
+      interval,
+      easeFactor,
+      nextReviewDate: card.nextReviewDate,
+      encounterCount
+    })
 
-    if (!isCorrect) {
-      // Forget (Quality 1)
-      repetitions = 0
-      interval = 1
-      easeFactor = Math.max(1.3, easeFactor - 0.2)
-    } else {
-      // Got it (Quality 4 equivalent)
-      if (repetitions === 0) {
-        interval = 1
-      } else if (repetitions === 1) {
-        interval = 6
+    if (repetitions < 2) {
+      if (!isCorrect) {
+        repetitions = 0;
+        nextReviewDate = new Date(now.getTime() + 1 * 60 * 1000);
       } else {
-        interval = Math.round(interval * easeFactor)
+        if (repetitions === 0) {
+          repetitions = 1;
+          nextReviewDate = new Date(now.getTime() + 10 * 60 * 1000);
+        } else {
+          repetitions = 2;
+          interval = 1;
+          let logicalDay = new Date(now);
+          if (logicalDay.getHours() < 3) logicalDay.setDate(logicalDay.getDate() - 1);
+          logicalDay.setDate(logicalDay.getDate() + 1);
+          logicalDay.setHours(3, 0, 0, 0);
+          nextReviewDate = logicalDay;
+        }
       }
-      repetitions += 1
-      easeFactor = easeFactor // Quality 4 doesn't change EF in standard SM-2
+    } else {
+      const settings = dbHandlers.getSettings();
+      const penaltyCoef = parseFloat(settings['srsPenalty'] || '0.2')
+      const rewardCoef = parseFloat(settings['srsReward'] || '2.5')
+
+      if (!isCorrect) {
+        interval = Math.max(1, interval * penaltyCoef);
+        easeFactor = Math.max(1.3, easeFactor - 0.2);
+      } else {
+        interval = interval * rewardCoef;
+      }
+      let logicalDay = new Date(now);
+      if (logicalDay.getHours() < 3) logicalDay.setDate(logicalDay.getDate() - 1);
+      logicalDay.setDate(logicalDay.getDate() + Math.max(1, Math.round(interval)));
+      logicalDay.setHours(3, 0, 0, 0);
+      nextReviewDate = logicalDay;
     }
 
-    // nextReviewDate = now + interval days
-    const nextReviewDate = new Date()
-    nextReviewDate.setDate(nextReviewDate.getDate() + interval)
-    const nextReviewIso = nextReviewDate.toISOString()
-
-    // Increment encounter count because a review is an encounter (even if forgotten, but we'll increment for all reviews or just correct ones? The user said Got it! so let's increment if correct. Actually, an encounter is an encounter. I'll just increment it.)
-    const encounterIncrement = isCorrect ? 1 : 1; 
+    const nextReviewIso = nextReviewDate.toISOString();
+    const encounterIncrement = 1;
 
     const updateStmt = db.prepare(`
       UPDATE cards 
@@ -248,26 +382,30 @@ export const dbHandlers = {
     `)
     updateStmt.run(repetitions, interval, easeFactor, nextReviewIso, encounterIncrement, id)
 
-    // Logging logic
-    const today = new Date().toISOString().split('T')[0]
+    // Check if reviewed today (in logical day)
+    let logicalDayStart = new Date(now)
+    if (logicalDayStart.getHours() < 3) {
+      logicalDayStart.setDate(logicalDayStart.getDate() - 1)
+    }
+    logicalDayStart.setHours(3, 0, 0, 0)
     
-    // Check if reviewed today
-    const checkLogStmt = db.prepare(`SELECT COUNT(*) as count FROM review_logs WHERE cardId = ? AND date(reviewDate) = ?`)
-    const logCheck = checkLogStmt.get(id, today) as any
+    const checkLogStmt = db.prepare(`SELECT COUNT(*) as count FROM review_logs WHERE cardId = ? AND reviewDate >= ?`)
+    const logCheck = checkLogStmt.get(id, logicalDayStart.toISOString()) as any
     const isFirstTry = logCheck.count === 0
 
     const logStmt = db.prepare(`
-      INSERT INTO review_logs (cardId, isCorrect, isFirstTry)
-      VALUES (?, ?, ?)
+      INSERT INTO review_logs (cardId, isCorrect, isFirstTry, previousState)
+      VALUES (?, ?, ?, ?)
     `)
-    logStmt.run(id, isCorrect ? 1 : 0, isFirstTry ? 1 : 0)
+    const logResult = logStmt.run(id, isCorrect ? 1 : 0, isFirstTry ? 1 : 0, previousState)
 
-    return { success: true }
+    return { success: true, logId: logResult.lastInsertRowid }
   },
   
-  deleteCard: (id: number) => {
+  deleteCard: async (id: number) => {
     const stmt = db.prepare('DELETE FROM cards WHERE id = ?')
     stmt.run(id)
+    await deleteCardVector(id)
     return { success: true }
   },
   
@@ -289,6 +427,57 @@ export const dbHandlers = {
     })
     transaction(settings)
     return { success: true }
+  },
+
+  getRevisionStats: () => {
+    const now = new Date()
+    let logicalDayStart = new Date(now)
+    if (logicalDayStart.getHours() < 3) {
+      logicalDayStart.setDate(logicalDayStart.getDate() - 1)
+    }
+    logicalDayStart.setHours(3, 0, 0, 0)
+    const logicalDayStartStr = logicalDayStart.toISOString()
+    
+    const allDueNow = db.prepare(`SELECT id FROM cards WHERE nextReviewDate IS NULL OR nextReviewDate <= ?`).all(now.toISOString()) as any[]
+    const dueCardIds = new Set(allDueNow.map(c => c.id))
+    
+    const reviewedToday = db.prepare(`SELECT DISTINCT cardId FROM review_logs WHERE reviewDate >= ?`).all(logicalDayStartStr) as any[]
+    const reviewedCardIds = new Set(reviewedToday.map(c => c.cardId))
+    
+    let memorized = 0;
+    let forgotten = 0;
+    let toReview = 0;
+    
+    reviewedCardIds.forEach(id => {
+      if (!dueCardIds.has(id)) memorized++;
+      else forgotten++; 
+    })
+    
+    dueCardIds.forEach(id => {
+      if (!reviewedCardIds.has(id)) toReview++;
+    })
+    
+    return { memorized, forgotten, toReview }
+  },
+
+  undoReview: () => {
+    const log = db.prepare(`SELECT * FROM review_logs ORDER BY id DESC LIMIT 1`).get() as any;
+    if (!log || !log.previousState) return { success: false, error: 'No undo history found' };
+    
+    try {
+      const prevState = JSON.parse(log.previousState);
+      const updateStmt = db.prepare(`
+        UPDATE cards 
+        SET repetitions = ?, interval = ?, easeFactor = ?, nextReviewDate = ?, encounterCount = ?, updatedAt = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `);
+      updateStmt.run(prevState.repetitions, prevState.interval, prevState.easeFactor, prevState.nextReviewDate, prevState.encounterCount, log.cardId);
+      
+      db.prepare(`DELETE FROM review_logs WHERE id = ?`).run(log.id);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: 'Failed to restore state' };
+    }
   },
   
   getStats: () => {
@@ -347,17 +536,31 @@ export const dbHandlers = {
       // Reset sqlite sequence for auto-increment IDs
       db.exec("DELETE FROM sqlite_sequence WHERE name='cards' OR name='review_logs'")
     })()
+    if (embeddingCache) embeddingCache.clear()
     return { success: true }
   },
 
-  importCards: (cards: any[]) => {
+  importCards: async (cards: any[]) => {
+    // Note: Generating embeddings for hundreds of imported cards sequentially might take some time,
+    // but it is required for pure local semantic search.
+    for (const card of cards) {
+      if (!card.embedding && card.front && card.back) {
+        try {
+          const vec = await getEmbedding(card.front + ": " + card.back);
+          card.embedding = JSON.stringify(vec);
+        } catch (e) {
+          console.error("Embedding generation failed for imported card:", e);
+        }
+      }
+    }
+
     let imported = 0
     let skipped = 0
     
     const checkStmt = db.prepare('SELECT id FROM cards WHERE front = ? AND type = ?')
     const insertStmt = db.prepare(`
-      INSERT INTO cards (type, front, back, style, label, imageUrl, sourceContext, useCount, encounterCount, manualReviewCount, repetitions, interval, easeFactor, nextReviewDate, createdAt)
-      VALUES (@type, @front, @back, @style, @label, @imageUrl, @sourceContext, @useCount, @encounterCount, @manualReviewCount, @repetitions, @interval, @easeFactor, @nextReviewDate, @createdAt)
+      INSERT INTO cards (type, front, back, style, label, imageUrl, sourceContext, useCount, encounterCount, manualReviewCount, repetitions, interval, easeFactor, nextReviewDate, createdAt, embedding)
+      VALUES (@type, @front, @back, @style, @label, @imageUrl, @sourceContext, @useCount, @encounterCount, @manualReviewCount, @repetitions, @interval, @easeFactor, @nextReviewDate, @createdAt, @embedding)
     `)
     
     const transaction = db.transaction((cardsToImport: any[]) => {
@@ -369,7 +572,7 @@ export const dbHandlers = {
           continue
         }
         
-        insertStmt.run({
+        const res = insertStmt.run({
           type: card.type,
           front: card.front,
           back: card.back,
@@ -384,9 +587,17 @@ export const dbHandlers = {
           interval: card.interval || 0,
           easeFactor: card.easeFactor || 2.5,
           nextReviewDate: card.nextReviewDate || null,
-          createdAt: card.createdAt || new Date().toISOString()
+          createdAt: card.createdAt || new Date().toISOString(),
+          embedding: card.embedding || null
         })
         imported++
+        if (card.embedding) {
+          try {
+            // Update vector database with the new card
+            addCardVector(res.lastInsertRowid as number, card.front, card.back, card.type)
+              .catch(err => console.error("Failed to update vector db during import:", err))
+          } catch(e) {}
+        }
       }
     })
     

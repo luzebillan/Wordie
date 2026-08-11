@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Save } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 
 interface DailyWordsProps {
@@ -17,20 +18,9 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
   const [similarCards, setSimilarCards] = useState<any[]>([])
   const [toastMessage, setToastMessage] = useState('')
 
-  useEffect(() => {
-    if (front.trim().length > 1 || back.trim().length > 1) {
-      const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Daily Words').then(setSimilarCards)
-      }, 300)
-      return () => clearTimeout(timer)
-    } else {
-      setSimilarCards([])
-    }
-  }, [front, back])
-
   const handleGenerate = async () => {
     if (!front.trim() && !imageUrl.trim()) {
-      setError('Please enter a target word or provide an image first.')
+      setError('Please enter a word or upload an image first.')
       return
     }
     setError('')
@@ -45,6 +35,8 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       const res = await window.ipcRenderer.generateDailyWord(payload)
       if (res.success && res.result) {
         setBack(res.result)
+        const updated = await window.ipcRenderer.findSimilarCards(front, res.result, 'Daily Words', true)
+        setSimilarCards(updated)
       } else {
         setError(res.error || 'Failed to generate explanation.')
       }
@@ -96,7 +88,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
   const handleIncrementManualReviewCount = async (id: number) => {
     try {
       await window.ipcRenderer.incrementManualReviewCount(id)
-      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Daily Words')
+      const updated = await window.ipcRenderer.findSimilarCards(front.trim(), back.trim())
       setSimilarCards(updated)
       if (onUpdateStats) onUpdateStats()
       
@@ -150,69 +142,73 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
         
-        <div className="flex gap-6 mb-6">
-          {/* Left Column: Front Side & Context */}
-          <div className="flex-1 space-y-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">Front Side</label>
-              <input
-                type="text"
-                value={front}
-                onChange={e => setFront(e.target.value)}
-                className="w-full p-3 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-                placeholder="Type the Front Side..."
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">Context</label>
-              <textarea
-                value={context}
-                onChange={e => setContext(e.target.value)}
-                className="w-full h-24 p-3 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-                placeholder="Type Your Context Here"
-              />
-            </div>
+        {/* Top Row: Front Side & Context */}
+        <div className="mb-4 bg-gray-50/50 dark:bg-[#1f2028]/50 p-4 rounded-xl border border-gray-100 dark:border-gray-800">
+          <label className="block text-sm font-bold text-gray-900 dark:text-white mb-3">Front Side</label>
+          <div className="flex items-center gap-4">
+            <input
+              type="text"
+              value={front}
+              onChange={e => {
+                setFront(e.target.value)
+                setSimilarCards([])
+              }}
+              className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+              placeholder="e.g. Joyful"
+            />
+            <span className="font-bold text-gray-500 text-sm whitespace-nowrap">in</span>
+            <input
+              type="text"
+              value={context}
+              onChange={e => setContext(e.target.value)}
+              className="flex-1 p-3 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+              placeholder="Context"
+            />
           </div>
+        </div>
 
-          {/* Right Column: Picture */}
-          <div className="flex-1 flex flex-col">
-            <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">Picture</label>
-            <div className="flex gap-2 mb-2">
-              <input
-                type="text"
-                value={imageUrl}
-                onChange={e => setImageUrl(e.target.value)}
-                className="flex-1 p-2 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm text-sm"
-                placeholder="Paste Image URL"
-              />
-              {imageUrl && imageUrl.startsWith('http') && (
-                <button
-                  onClick={handleCacheImage}
-                  disabled={isCaching}
-                  className="px-3 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-lg font-bold transition-colors disabled:opacity-50 text-sm"
-                >
-                  {isCaching ? '...' : 'Cache'}
-                </button>
-              )}
+        {/* AND / OR divider */}
+        <div className="flex items-center justify-center mb-4">
+          <span className="text-xs font-bold text-gray-500 tracking-widest">AND / OR</span>
+        </div>
+
+        {/* Picture Area */}
+        <div className="mb-6 bg-gray-50/50 dark:bg-[#1f2028]/50 p-4 rounded-xl border border-gray-100 dark:border-gray-800 flex flex-col">
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={imageUrl}
+              onChange={e => setImageUrl(e.target.value)}
+              className="flex-1 p-2 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm text-sm"
+              placeholder="Paste the Link of Your Photo"
+            />
+            {imageUrl && imageUrl.startsWith('http') && (
               <button
-                onClick={handleUploadLocal}
+                onClick={handleCacheImage}
                 disabled={isCaching}
-                className="px-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-bold transition-colors disabled:opacity-50 text-sm"
-                title="Upload Local File"
+                className="px-3 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-lg font-bold transition-colors disabled:opacity-50 text-sm"
               >
-                📁
+                {isCaching ? '...' : 'Cache'}
               </button>
-            </div>
-            
-            <div className="flex-1 bg-gray-50 dark:bg-gray-900/50 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center min-h-[150px] relative overflow-hidden">
-              {imageUrl && !imageUrl.startsWith('http') ? (
-                <img src={`local-asset://${imageUrl}`} alt="Cached Preview" className="absolute inset-0 w-full h-full object-contain p-2" />
-              ) : imageUrl ? (
-                <img src={imageUrl} alt="External Preview" className="absolute inset-0 w-full h-full object-contain p-2 opacity-50" />
-              ) : (
-                <span className="text-gray-400 text-sm font-medium">Paste the Link of Your Photo</span>
-              )}
-            </div>
+            )}
+            <button
+              onClick={handleUploadLocal}
+              disabled={isCaching}
+              className="px-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-bold transition-colors disabled:opacity-50 text-sm"
+              title="Upload Local File"
+            >
+              📁
+            </button>
+          </div>
+          
+          <div className="flex-1 bg-white dark:bg-[#1f2028] border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center min-h-[160px] relative overflow-hidden">
+            {imageUrl && !imageUrl.startsWith('http') ? (
+              <img src={`local-asset://${imageUrl}`} alt="Cached Preview" className="absolute inset-0 w-full h-full object-contain p-2" />
+            ) : imageUrl ? (
+              <img src={imageUrl} alt="External Preview" className="absolute inset-0 w-full h-full object-contain p-2 opacity-50" />
+            ) : (
+              <span className="text-gray-400 text-sm font-medium">Paste the Link of Your Photo</span>
+            )}
           </div>
         </div>
 
@@ -222,7 +218,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
             <button
               onClick={handleGenerate}
               disabled={isGenerating || (!front && !imageUrl)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-100 hover:bg-black dark:hover:bg-white text-white dark:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+              className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400 monochrome:bg-gray-800 monochrome:hover:bg-black dark:monochrome:bg-gray-100 dark:monochrome:hover:bg-white text-white dark:monochrome:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
@@ -234,21 +230,24 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
           
           <textarea
             value={back}
-            onChange={e => setBack(e.target.value)}
+            onChange={e => {
+              setBack(e.target.value)
+              setSimilarCards([])
+            }}
             disabled={isGenerating}
             className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
-            placeholder="AI will generate the translation here..."
+            placeholder="AI-Generated Card Content Here"
           />
         </div>
 
-        {/* Save */}
-        <div className="flex justify-end pb-8">
+        <div className="flex justify-start pb-8">
           <button
             onClick={handleSave}
             disabled={!front || !back || isGenerating}
-            className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-6 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white rounded-lg font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Word
+            <Save className="w-4 h-4" />
+            Save
           </button>
         </div>
       </div>

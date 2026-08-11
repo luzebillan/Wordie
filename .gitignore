@@ -33,3 +33,13 @@ yarn.lock
 /playwright/.cache/
 
 test/screenshots
+
+# Database files
+*.db
+
+# Typescript build info
+*.tsbuildinfo
+
+# Temporary scratch scripts
+.scratch/**/*.js
+.scratch/**/*.cjs

@@ -24,14 +24,17 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   getCards: () => ipcRenderer.invoke('get-cards'),
   getCard: (id: number) => ipcRenderer.invoke('get-card', id),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
-  searchCards: (front: string, back: string = '', type?: string) => ipcRenderer.invoke('search-cards', { front, back, type }),
+  searchCards: (query: string, type?: string) => ipcRenderer.invoke('search-cards', { query, type }),
+  findSimilarCards: (front: string, back: string = '', type?: string, useLLM?: boolean) => ipcRenderer.invoke('find-similar-cards', { front, back, type, useLLM }),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
   incrementEncounterCount: (id: number) => ipcRenderer.invoke('increment-encounter-count', id),
   incrementManualReviewCount: (id: number) => ipcRenderer.invoke('increment-manual-review-count', id),
-  getDueCards: () => ipcRenderer.invoke('get-due-cards'),
+  getDueCards: (randomize?: boolean) => ipcRenderer.invoke('get-due-cards', randomize),
   getRandomCards: (limit?: number) => ipcRenderer.invoke('get-random-cards', limit),
   updateCardText: (id: number, front: string, back: string) => ipcRenderer.invoke('update-card-text', { id, front, back }),
   reviewCard: (id: number, isCorrect: boolean) => ipcRenderer.invoke('review-card', { id, isCorrect }),
+  undoReview: () => ipcRenderer.invoke('undo-review'),
+  getRevisionStats: () => ipcRenderer.invoke('get-revision-stats'),
   getStats: () => ipcRenderer.invoke('get-stats'),
   getStatsByType: (type: string) => ipcRenderer.invoke('get-stats-by-type', type),
   
@@ -46,12 +49,13 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   validateSketchEngine: (url: string, apiKey: string) => ipcRenderer.invoke('validate-sketch-engine', { url, apiKey }),
   validateAiApi: (url: string, apiKey: string, model: string) => ipcRenderer.invoke('validate-ai-api', { url, apiKey, model }),
 
-  // AI APIs
-  generateExpression: (context: string, style: string, front: string) => ipcRenderer.invoke('generate-expression', { context, style, front }),
-  generateGlossary: (labels: string[], term: string) => ipcRenderer.invoke('generate-glossary', { labels, term }),
-  generateDailyWord: (payload: { picture?: string; context?: string; front?: string }) => ipcRenderer.invoke('generate-daily-word', payload),
-  generateReadyVersion: (front: string) => ipcRenderer.invoke('generate-ready-version', { front }),
-  aiRewritePractice: (text: string, targetWords: string[]) => ipcRenderer.invoke('ai-rewrite-practice', { text, targetWords }),
+    // AI APIs
+    generateExpression: (context: string, style: string, front: string) => ipcRenderer.invoke('generate-expression', { context, style, front }),
+    generateGlossary: (labels: string[], term: string) => ipcRenderer.invoke('generate-glossary', { labels, term }),
+    generateDailyWord: (payload: { picture?: string; context?: string; front?: string }) => ipcRenderer.invoke('generate-daily-word', payload),
+    generateReadyVersion: (front: string) => ipcRenderer.invoke('generate-ready-version', { front }),
+    generateRevisionCloze: (payload: { front: string; back: string }) => ipcRenderer.invoke('generate-revision-cloze', payload),
+    aiRewritePractice: (text: string, targetWords: string[]) => ipcRenderer.invoke('ai-rewrite-practice', { text, targetWords }),
 
   // Image APIs
   downloadImage: (url: string) => ipcRenderer.invoke('download-image', url),

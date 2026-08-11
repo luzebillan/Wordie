@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Save } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 
 interface UsefulExpressionsProps {
@@ -9,45 +10,12 @@ interface UsefulExpressionsProps {
 export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate, onUpdateStats }) => {
   const [context, setContext] = useState('')
   const [front, setFront] = useState('')
-  const [styles, setStyles] = useState<string[]>(['General', 'Informal', 'Formal'])
+  const [style, setStyle] = useState<string>('General')
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
   const [similarCards, setSimilarCards] = useState<any[]>([])
   const [toastMessage, setToastMessage] = useState('')
-
-  // Debounced search for similar cards
-  useEffect(() => {
-    if (front.trim().length > 1 || back.trim().length > 1) {
-      const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Useful Expressions').then(setSimilarCards)
-      }, 300)
-      return () => clearTimeout(timer)
-    } else {
-      setSimilarCards([])
-    }
-  }, [front, back])
-
-  const handleStyleToggle = (s: string) => {
-    if (s === 'General') {
-      if (styles.includes('General')) {
-        setStyles([])
-      } else {
-        setStyles(['Informal', 'Formal', 'General'])
-      }
-    } else {
-      let newStyles = styles.includes(s) 
-        ? styles.filter(x => x !== s) 
-        : [...styles, s]
-        
-      if (newStyles.includes('General') && newStyles.length < 3) {
-        newStyles = newStyles.filter(x => x !== 'General')
-      } else if (!newStyles.includes('General') && newStyles.includes('Informal') && newStyles.includes('Formal')) {
-        newStyles.push('General')
-      }
-      setStyles(newStyles)
-    }
-  }
 
   const handleGenerate = async () => {
     if (!front.trim()) {
@@ -58,9 +26,11 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
     setIsGenerating(true)
     
     try {
-      const res = await window.ipcRenderer.generateExpression(context, styles.join(', '), front)
+      const res = await window.ipcRenderer.generateExpression(context, style, front)
       if (res.success && res.result) {
         setBack(res.result)
+        const updated = await window.ipcRenderer.findSimilarCards(front, res.result, 'Useful Expressions', true)
+        setSimilarCards(updated)
       } else {
         setError(res.error || 'Failed to generate explanation.')
       }
@@ -82,7 +52,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
         type: 'Useful Expressions',
         front,
         back,
-        style: styles.join(', '),
+        style,
         label: '',
         sourceContext: context
       })
@@ -91,7 +61,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
       setContext('')
       setFront('')
       setBack('')
-      setStyles(['General', 'Informal', 'Formal'])
+      setStyle('General')
       setError('')
       setSimilarCards([])
       onUpdateStats?.()
@@ -104,7 +74,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
   const handleIncrementManualReviewCount = async (id: number) => {
     try {
       await window.ipcRenderer.incrementManualReviewCount(id)
-      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Useful Expressions')
+      const updated = await window.ipcRenderer.findSimilarCards(front.trim(), back.trim())
       setSimilarCards(updated)
       onUpdateStats?.()
       
@@ -135,29 +105,14 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
         {/* Style selection */}
         <div className="flex gap-6 mb-8">
           {['Informal', 'Formal', 'General'].map(s => (
-            <label key={s} className="flex items-center gap-2 cursor-pointer group">
-              <input
-                type="checkbox"
-                name="style"
-                value={s}
-                checked={styles.includes(s)}
-                onChange={() => handleStyleToggle(s)}
-                className="hidden"
+            <label key={s} className="flex items-center gap-3 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={style === s}
+                onChange={() => setStyle(s)}
+                className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500 accent-purple-600 monochrome:accent-gray-900 monochrome:text-gray-900 monochrome:focus:ring-gray-900 bg-white" 
               />
-              <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-                styles.includes(s)
-                  ? 'bg-purple-500 border-purple-500' 
-                  : 'border-gray-300 dark:border-gray-600 bg-transparent group-hover:border-purple-400'
-              }`}>
-                {styles.includes(s) && (
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </div>
-              <span className={`text-sm font-medium ${styles.includes(s) ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'}`}>
-                {s}
-              </span>
+              <span className="text-gray-800 dark:text-gray-200 font-medium">{s}</span>
             </label>
           ))}
         </div>
@@ -168,7 +123,10 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
           <input
             type="text"
             value={front}
-            onChange={e => setFront(e.target.value)}
+            onChange={e => {
+              setFront(e.target.value)
+              setSimilarCards([])
+            }}
             className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
             placeholder="Type the Front Side of Your New Card Here"
           />
@@ -180,7 +138,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
             <button
               onClick={handleGenerate}
               disabled={isGenerating || !front}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-100 hover:bg-black dark:hover:bg-white text-white dark:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+              className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400 monochrome:bg-gray-800 monochrome:hover:bg-black dark:monochrome:bg-gray-100 dark:monochrome:hover:bg-white text-white dark:monochrome:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
@@ -192,21 +150,24 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
           
           <textarea
             value={back}
-            onChange={e => setBack(e.target.value)}
+            onChange={e => {
+              setBack(e.target.value)
+              setSimilarCards([])
+            }}
             disabled={isGenerating}
             className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
-            placeholder="AI will generate the explanation here..."
+            placeholder="AI-Generated Explanation Here"
           />
         </div>
 
-        {/* Save */}
-        <div className="flex justify-end pb-8">
+        <div className="flex justify-start pb-8">
           <button
             onClick={handleSave}
             disabled={!front || !back || isGenerating}
-            className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-6 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white rounded-lg font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Card
+            <Save className="w-4 h-4" />
+            Save
           </button>
         </div>
       </div>

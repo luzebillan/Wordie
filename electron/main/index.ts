@@ -6,7 +6,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import { update } from './update'
 import { dbHandlers, initDB } from './db'
-import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion, aiRewritePractice } from './ai'
+import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion, aiRewritePractice, practicePureListener, practiceRewrite, practiceAiVersion } from './ai'
 import { downloadImage, uploadLocalImage, getImagesDir } from './imageCache'
 
 const require = createRequire(import.meta.url)
@@ -47,11 +47,42 @@ let win: BrowserWindow | null = null
 const preload = path.join(__dirname, '../preload/index.mjs')
 const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
+function saveWindowState() {
+  if (win) {
+    try {
+      const isMaximized = win.isMaximized()
+      const bounds = win.getNormalBounds()
+      const windowStatePath = path.join(app.getPath('userData'), 'window-state.json')
+      fs.writeFileSync(windowStatePath, JSON.stringify({ bounds, isMaximized }))
+    } catch (e) {
+      console.error('Failed to save window state:', e)
+    }
+  }
+}
+
 async function createWindow() {
+  let bounds = { width: 1200, height: 800, x: undefined, y: undefined }
+  let isMaximized = false
+
+  try {
+    const windowStatePath = path.join(app.getPath('userData'), 'window-state.json')
+    if (fs.existsSync(windowStatePath)) {
+      const state = JSON.parse(fs.readFileSync(windowStatePath, 'utf8'))
+      if (state.bounds) {
+        bounds = { ...bounds, ...state.bounds }
+      }
+      isMaximized = state.isMaximized || false
+    }
+  } catch (e) {
+    console.error('Failed to load window state:', e)
+  }
+
   win = new BrowserWindow({
     title: 'Main window',
-    width: 1200,
-    height: 800,
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
     minWidth: 1024,
     minHeight: 768,
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
@@ -67,6 +98,10 @@ async function createWindow() {
     frame: false,
     titleBarStyle: 'hidden',
   })
+
+  if (isMaximized) {
+    win.maximize()
+  }
 
   // Window control IPCs
   ipcMain.on('window-minimize', () => {
@@ -111,6 +146,8 @@ async function createWindow() {
     if (url.startsWith('https:')) shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  win.on('close', saveWindowState)
 
   // Auto update
   update(win)
@@ -158,15 +195,20 @@ ipcMain.handle('create-card', (_, card) => dbHandlers.createCard(card))
 ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('get-card', (_, id) => dbHandlers.getCard(id))
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
-ipcMain.handle('search-cards', (_, { front, back, type }) => dbHandlers.searchCards(front, back, type))
+ipcMain.handle('search-cards', (_, { query, type }) => dbHandlers.searchCards(query, type))
+ipcMain.handle('find-similar-cards', (_, { front, back, type, useLLM }) => dbHandlers.findSimilarCards(front, back, type, useLLM))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
 ipcMain.handle('increment-encounter-count', (_, id) => dbHandlers.incrementEncounterCount(id))
 ipcMain.handle('increment-manual-review-count', (_, id) => dbHandlers.incrementManualReviewCount(id))
-ipcMain.handle('get-due-cards', () => dbHandlers.getDueCards())
+ipcMain.handle('get-due-cards', async (_, randomize = false) => {
+  return dbHandlers.getDueCards(randomize)
+})
 ipcMain.handle('get-random-cards', (_, limit) => dbHandlers.getRandomCards(limit))
 ipcMain.handle('update-card-text', (_, { id, front, back }) => dbHandlers.updateCardText(id, front, back))
 ipcMain.handle('review-card', (_, { id, isCorrect }) => dbHandlers.reviewCard(id, isCorrect))
 ipcMain.handle('get-stats-by-type', (_, type) => dbHandlers.getStatsByType(type))
+ipcMain.handle('get-revision-stats', () => dbHandlers.getRevisionStats())
+ipcMain.handle('undo-review', () => dbHandlers.undoReview())
 
 // Data Management IPCs
 ipcMain.handle('export-data', async () => {
@@ -248,9 +290,30 @@ ipcMain.handle('generate-ready-version', async (_, { front }) => {
   return await aiGenerateReadyVersion(front, settings)
 })
 
+ipcMain.handle('generate-revision-cloze', async (_, { front, back }) => {
+  const settings = dbHandlers.getSettings()
+  const { generateRevisionCloze } = await import('./ai')
+  return await generateRevisionCloze(front, back, settings)
+})
+
 ipcMain.handle('ai-rewrite-practice', async (_, { text, targetWords }) => {
   const settings = dbHandlers.getSettings()
   return await aiRewritePractice(text, targetWords, settings)
+})
+
+ipcMain.handle('practice-pure-listener', async (_, text) => {
+  const settings = dbHandlers.getSettings()
+  return await practicePureListener(text, settings)
+})
+
+ipcMain.handle('practice-rewrite', async (_, text) => {
+  const settings = dbHandlers.getSettings()
+  return await practiceRewrite(text, settings, dbHandlers)
+})
+
+ipcMain.handle('practice-ai-version', async (_, text) => {
+  const settings = dbHandlers.getSettings()
+  return await practiceAiVersion(text, settings)
 })
 
 ipcMain.handle('get-stats', () => dbHandlers.getStats())

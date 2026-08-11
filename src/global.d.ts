@@ -4,16 +4,19 @@ interface Window {
     getCards: () => Promise<any[]>
     getCard: (id: number) => Promise<any>
     deleteCard: (id: number) => Promise<{success: boolean}>
-    searchCards: (front: string, back?: string, type?: string) => Promise<any[]>
+    searchCards: (query: string, type?: string) => Promise<any[]>
+    findSimilarCards: (front: string, back?: string, type?: string, useLLM?: boolean) => Promise<any[]>
     incrementUseCount: (id: number) => Promise<void>
     incrementEncounterCount: (id: number) => Promise<void>
     incrementManualReviewCount: (id: number) => Promise<void>
-    getDueCards: () => Promise<any[]>
+    getDueCards: (randomize?: boolean) => Promise<any[]>
     getRandomCards: (limit?: number) => Promise<any[]>
     updateCardText: (id: number, front: string, back: string) => Promise<{ success: boolean; error?: string }>
-    reviewCard: (id: number, isCorrect: boolean) => Promise<{ success: boolean; error?: string }>
+    reviewCard: (id: number, isCorrect: boolean) => Promise<{ success: boolean; logId?: number; error?: string }>
     getStats: () => Promise<any>
-    getStatsByType: (type: string) => Promise<any>
+    getStatsByType: (type: string) => Promise<{ cardsReviewed: number; cardsToReview: number }>
+    getRevisionStats: () => Promise<{ memorized: number; forgotten: number; toReview: number }>
+    undoReview: () => Promise<{ success: boolean; error?: string }>
     
     // Data APIs
     exportData: () => Promise<{success: boolean; filePath?: string; count?: number; canceled?: boolean; error?: string}>
@@ -31,7 +34,9 @@ interface Window {
     generateGlossary: (labels: string[], term: string) => Promise<{success: boolean; result?: string; error?: string}>
     generateDailyWord: (payload: { picture?: string; context?: string; front?: string }) => Promise<{success: boolean; result?: string; error?: string}>
     generateReadyVersion: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
+    generateRevisionCloze: (payload: { front: string; back: string }) => Promise<{ success: boolean; result?: string; error?: string }>
     aiRewritePractice: (text: string, targetWords: string[]) => Promise<{success: boolean; result?: string; error?: string}>
+    invoke: (channel: string, data: any) => Promise<any>
 
     // Image APIs
     downloadImage: (url: string) => Promise<{success: boolean; filename?: string; error?: string}>

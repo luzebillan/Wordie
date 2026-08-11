@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Save } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 
 interface ReadyVersionsProps {
@@ -16,16 +17,7 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
   const [similarCards, setSimilarCards] = useState<any[]>([])
   const [toastMessage, setToastMessage] = useState('')
 
-  useEffect(() => {
-    if (front.trim().length > 1 || back.trim().length > 1) {
-      const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Ready Versions').then(setSimilarCards)
-      }, 300)
-      return () => clearTimeout(timer)
-    } else {
-      setSimilarCards([])
-    }
-  }, [front, back])
+  // Debounced search for similar cards removed by user request
 
   const handleSave = async () => {
     if (!front || !back) {
@@ -54,7 +46,7 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
   const handleIncrementManualReviewCount = async (id: number) => {
     try {
       await window.ipcRenderer.incrementManualReviewCount(id)
-      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Ready Versions')
+      const updated = await window.ipcRenderer.findSimilarCards(front.trim(), back.trim())
       setSimilarCards(updated)
       if (onUpdateStats) onUpdateStats()
       
@@ -80,7 +72,7 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
                   type="checkbox" 
                   checked={label === t}
                   onChange={() => setLabel(t)}
-                  className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500 bg-white" 
+                  className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500 accent-purple-600 monochrome:accent-gray-900 monochrome:text-gray-900 monochrome:focus:ring-gray-900 bg-white" 
                 />
                 <span className="text-gray-800 dark:text-gray-200 font-medium">{t}</span>
               </label>
@@ -114,12 +106,13 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
         </div>
 
         {/* Save */}
-        <div className="flex justify-end pb-8">
+        <div className="flex justify-start pb-8">
           <button
             onClick={handleSave}
             disabled={!front || !back}
-            className="px-8 py-3 bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-black dark:hover:bg-white rounded-xl font-bold transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-6 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white rounded-lg font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
+            <Save className="w-4 h-4" />
             Save
           </button>
         </div>

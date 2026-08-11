@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import * as Prompts from '../constants/prompts'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -6,7 +7,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data' | 'advanced' | 'prompts'>('general')
   
   // General State
   const [showSplash, setShowSplash] = useState(true)
@@ -20,6 +21,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [aiKey, setAiKey] = useState('')
   const [aiModel, setAiModel] = useState('gpt-4o')
   const [validUntil, setValidUntil] = useState<string | null>(null)
+
+  // Advanced State
+  const [semanticMatchDistance, setSemanticMatchDistance] = useState('1.4')
+  const [srsReward, setSrsReward] = useState('2.5')
+  const [srsPenalty, setSrsPenalty] = useState('0.2')
+  const [rewriteDivider, setRewriteDivider] = useState('20')
+  
+  // Prompts State
+  const [promptGlossary, setPromptGlossary] = useState('')
+  const [promptDailyWord, setPromptDailyWord] = useState('')
+  const [promptPracticeAi, setPromptPracticeAi] = useState('')
+  const [promptRewrite, setPromptRewrite] = useState('')
+  const [promptExpression, setPromptExpression] = useState('')
+  const [promptRevisionCloze, setPromptRevisionCloze] = useState('')
+  const [promptPureListener, setPromptPureListener] = useState('')
+  const [promptPracticeExtract, setPromptPracticeExtract] = useState('')
+  const [promptPracticeRewrite, setPromptPracticeRewrite] = useState('')
+  const [promptAiVersion, setPromptAiVersion] = useState('')
+  const [promptSynonyms, setPromptSynonyms] = useState('')
   
   // UI State
   const [isValidating, setIsValidating] = useState(false)
@@ -38,6 +58,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (settings.skipSplashScreen) setShowSplash(settings.skipSplashScreen !== 'true')
         if (settings.theme) setTheme(settings.theme)
         if (settings.themeColor) setThemeColor(settings.themeColor)
+        if (settings.semanticMatchDistance) setSemanticMatchDistance(settings.semanticMatchDistance)
+        if (settings.srsReward) setSrsReward(settings.srsReward)
+        if (settings.srsPenalty) setSrsPenalty(settings.srsPenalty)
+        if (settings.rewriteDivider) setRewriteDivider(settings.rewriteDivider)
+        setPromptGlossary(settings.promptGlossary || Prompts.DEFAULT_PROMPT_GLOSSARY)
+        setPromptDailyWord(settings.promptDailyWord || Prompts.DEFAULT_PROMPT_DAILY_WORD)
+        setPromptPracticeAi(settings.promptPracticeAi || Prompts.DEFAULT_PROMPT_PRACTICE_AI)
+        setPromptRewrite(settings.promptRewrite || Prompts.DEFAULT_PROMPT_REWRITE)
+        setPromptExpression(settings.promptExpression || Prompts.DEFAULT_PROMPT_EXPRESSION)
+        setPromptRevisionCloze(settings.promptRevisionCloze || Prompts.DEFAULT_PROMPT_REVISION_CLOZE)
+        setPromptPureListener(settings.promptPureListener || Prompts.DEFAULT_PROMPT_PURE_LISTENER)
+        setPromptPracticeExtract(settings.promptPracticeExtract || Prompts.DEFAULT_PROMPT_PRACTICE_EXTRACT)
+        setPromptPracticeRewrite(settings.promptPracticeRewrite || Prompts.DEFAULT_PROMPT_PRACTICE_REWRITE)
+        setPromptAiVersion(settings.promptAiVersion || Prompts.DEFAULT_PROMPT_AI_VERSION)
+        setPromptSynonyms(settings.promptSynonyms || Prompts.DEFAULT_PROMPT_SYNONYMS)
       })
     }
   }, [isOpen])
@@ -45,6 +80,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const autoSave = async (key: string, value: string) => {
     await window.ipcRenderer.saveSettings({ [key]: value })
     window.dispatchEvent(new Event('settings-updated'))
+  }
+
+  const renderPromptField = (title: string, value: string, setter: (val: string) => void, saveKey: string, desc: string, defaultPrompt: string) => {
+    const handleBlur = () => {
+      if (!value.trim()) {
+        setter(defaultPrompt)
+        autoSave(saveKey, '')
+      } else {
+        autoSave(saveKey, value === defaultPrompt ? '' : value)
+      }
+    }
+
+    return (
+      <div className="space-y-2 p-4 rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{title}</label>
+          <p className="text-[11px] text-gray-400 mt-0.5">{desc}</p>
+        </div>
+        <textarea
+          value={value}
+          onChange={(e) => setter(e.target.value)}
+          onBlur={handleBlur}
+          placeholder="Leave empty to use default..."
+          rows={6}
+          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200 resize-y font-mono text-[13px]"
+        />
+      </div>
+    )
   }
 
   const handleValidate = async () => {
@@ -121,10 +184,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-3xl overflow-hidden bg-white/80 dark:bg-[#1f2028]/90 backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] transition-all transform scale-100 animate-in zoom-in-95 duration-200">
+      <div className="relative w-[80vw] min-w-[700px] max-w-[950px] h-[75vh] min-h-[500px] max-h-[700px] flex flex-col overflow-hidden bg-white/80 dark:bg-[#1f2028]/90 backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] transition-all transform scale-100 animate-in zoom-in-95 duration-200">
         
         {/* Header */}
-        <div className="px-6 py-5 border-b border-gray-200/50 dark:border-gray-700/50 flex justify-between items-center">
+        <div className="px-6 py-5 border-b border-gray-200/50 dark:border-gray-700/50 flex justify-between items-center shrink-0">
           <h2 className="text-2xl font-semibold bg-gradient-to-r from-purple-600 to-blue-500 bg-clip-text text-transparent">Settings</h2>
           <button 
             onClick={onClose}
@@ -136,9 +199,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
-        <div className="flex h-[450px]">
+        <div className="flex flex-1 overflow-hidden">
           {/* Tabs */}
-          <div className="w-48 bg-gray-50/30 dark:bg-black/10 border-r border-gray-200/50 dark:border-gray-700/50 p-4 space-y-2">
+          <div className="w-56 bg-gray-50/30 dark:bg-black/10 border-r border-gray-200/50 dark:border-gray-700/50 p-4 space-y-2 overflow-y-auto shrink-0">
             <button 
               onClick={() => setActiveTab('general')}
               className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -158,6 +221,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               }`}
             >
               AI & API
+            </button>
+            <button 
+              onClick={() => setActiveTab('prompts')}
+              className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'prompts' 
+                  ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              AI Prompts
+            </button>
+            <button 
+              onClick={() => setActiveTab('advanced')}
+              className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'advanced' 
+                  ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Advanced / Algorithm
             </button>
             <button 
               onClick={() => setActiveTab('data')}
@@ -386,10 +469,105 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </button>
                   </div>
                 </div>
-              </div>
-            ) : null}
+                </div>
+              ) : activeTab === 'advanced' ? (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Algorithm Tweaks
+                    </h3>
+
+                    <div className="space-y-4 p-4 rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Semantic Match Threshold
+                        </label>
+                        <input
+                          type="text"
+                          value={semanticMatchDistance}
+                          onChange={(e) => setSemanticMatchDistance(e.target.value)}
+                          onBlur={() => autoSave('semanticMatchDistance', semanticMatchDistance)}
+                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1">Controls strictness for fuzzy matching in Rewrite module (default 1.4).</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            SRS Reward Coefficient
+                          </label>
+                          <input
+                            type="text"
+                            value={srsReward}
+                            onChange={(e) => setSrsReward(e.target.value)}
+                            onBlur={() => autoSave('srsReward', srsReward)}
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
+                          />
+                          <p className="text-[11px] text-gray-400 mt-1">Multiplier when clicking Got it! (default 2.5).</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            SRS Penalty Coefficient
+                          </label>
+                          <input
+                            type="text"
+                            value={srsPenalty}
+                            onChange={(e) => setSrsPenalty(e.target.value)}
+                            onBlur={() => autoSave('srsPenalty', srsPenalty)}
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
+                          />
+                          <p className="text-[11px] text-gray-400 mt-1">Multiplier when clicking Forget (default 0.2).</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Rewrite Expression Divider
+                        </label>
+                        <input
+                          type="text"
+                          value={rewriteDivider}
+                          onChange={(e) => setRewriteDivider(e.target.value)}
+                          onBlur={() => autoSave('rewriteDivider', rewriteDivider)}
+                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1">Number of expressions to optimize in Practice = total_cards / divider (default 20).</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : activeTab === 'prompts' ? (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                      Prompt Engineering
+                    </h3>
+                    
+                    <p className="text-xs text-gray-500 dark:text-gray-400 pb-2">
+                      Leave fields empty to use system defaults. Do not remove placeholders like <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{`{{var}}`}</code>.
+                    </p>
+
+                    {renderPromptField('Glossary Definition', promptGlossary, setPromptGlossary, 'promptGlossary', 'Generates flashcard definitions. Placeholders: {{term}}, {{labels}}', Prompts.DEFAULT_PROMPT_GLOSSARY)}
+                    {renderPromptField('Daily Word System Prompt', promptDailyWord, setPromptDailyWord, 'promptDailyWord', 'System persona for generating localized words from image or context.', Prompts.DEFAULT_PROMPT_DAILY_WORD)}
+                    {renderPromptField('Synonyms Strict Filter', promptSynonyms, setPromptSynonyms, 'promptSynonyms', 'Filters AI synonyms. Placeholders: {{targetFront}}, {{targetBack}}, {{candidatesStr}}', Prompts.DEFAULT_PROMPT_SYNONYMS)}
+                    {renderPromptField('Expression Generation', promptExpression, setPromptExpression, 'promptExpression', 'Creates concise English definitions. Placeholders: {{front}}, {{context}}', Prompts.DEFAULT_PROMPT_EXPRESSION)}
+                    {renderPromptField('Revision Cloze', promptRevisionCloze, setPromptRevisionCloze, 'promptRevisionCloze', 'Creates cloze deletion sentences. Placeholders: {{display_phrase}}, {{back}}, {{clean_snippet}}, {{wordsToBlank}}', Prompts.DEFAULT_PROMPT_REVISION_CLOZE)}
+                    
+                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-6 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">Practice Module</h4>
+                    {renderPromptField('Pure Listener', promptPureListener, setPromptPureListener, 'promptPureListener', 'Evaluates overall logic. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_PURE_LISTENER)}
+                    {renderPromptField('Rewrite Extraction', promptPracticeExtract, setPromptPracticeExtract, 'promptPracticeExtract', 'Extracts target phrases for optimization. Placeholders: {{targetCount}}, {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_EXTRACT)}
+                    {renderPromptField('Rewrite Output', promptPracticeRewrite, setPromptPracticeRewrite, 'promptPracticeRewrite', 'Rewrites text integrating vocabulary. Placeholders: {{cardsContext}}, {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_REWRITE)}
+                    {renderPromptField('AI Target Version', promptPracticeAi, setPromptPracticeAi, 'promptPracticeAi', 'Generates ideal interpreter delivery. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_AI)}
+                    {renderPromptField('Elite Upgrade', promptAiVersion, setPromptAiVersion, 'promptAiVersion', 'Upgrades English to elite level. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_AI_VERSION)}
+                    {renderPromptField('Vocabulary Fusion', promptRewrite, setPromptRewrite, 'promptRewrite', 'Rephrases text using specific vocab. Placeholders: {{dbText}}, {{text}}', Prompts.DEFAULT_PROMPT_REWRITE)}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
 
         {/* Footer removed per user requirement: no Cancel/Save buttons */}
 

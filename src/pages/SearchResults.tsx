@@ -19,6 +19,15 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
     }
   }, [query])
 
+  useEffect(() => {
+    const handleCardDeleted = (e: any) => {
+      const deletedCardId = e.detail
+      setResults(prev => prev.filter(card => card.id !== deletedCardId))
+    }
+    window.addEventListener('card-deleted', handleCardDeleted)
+    return () => window.removeEventListener('card-deleted', handleCardDeleted)
+  }, [])
+
   return (
     <div className="h-full flex flex-col animate-in fade-in duration-300">
       <div className="mb-6 flex items-center justify-between">
@@ -38,7 +47,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
             {results.map(card => (
               <div 
                 key={card.id} 
-                onClick={() => onNavigate('revision', card.id)}
+                onClick={() => window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id }))}
                 className="bg-white dark:bg-[#1f2028] p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-md cursor-pointer transition-all hover:border-purple-300 dark:hover:border-purple-700/50 group"
               >
                 <div className="flex justify-between items-start mb-2 gap-4">

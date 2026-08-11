@@ -109,29 +109,17 @@
   --color-indigo-900: #111111;
   --color-indigo-950: #000000;
 
-  --color-red-50: var(--color-gray-100);
-  --color-red-100: var(--color-gray-200);
-  --color-red-200: var(--color-gray-300);
-  --color-red-300: var(--color-gray-400);
-  --color-red-400: var(--color-gray-500);
-  --color-red-500: var(--color-gray-600);
-  --color-red-600: var(--color-gray-700);
-  --color-red-700: var(--color-gray-800);
-  --color-red-800: var(--color-gray-900);
-  --color-red-900: #111111;
-  --color-red-950: #000000;
-
-  --color-green-50: var(--color-gray-100);
-  --color-green-100: var(--color-gray-200);
-  --color-green-200: var(--color-gray-300);
-  --color-green-300: var(--color-gray-400);
-  --color-green-400: var(--color-gray-500);
-  --color-green-500: var(--color-gray-600);
-  --color-green-600: var(--color-gray-700);
-  --color-green-700: var(--color-gray-800);
-  --color-green-800: var(--color-gray-900);
-  --color-green-900: #111111;
-  --color-green-950: #000000;
+  --color-yellow-50: var(--color-gray-100);
+  --color-yellow-100: var(--color-gray-200);
+  --color-yellow-200: var(--color-gray-300);
+  --color-yellow-300: var(--color-gray-400);
+  --color-yellow-400: var(--color-gray-500);
+  --color-yellow-500: var(--color-gray-600);
+  --color-yellow-600: var(--color-gray-700);
+  --color-yellow-700: var(--color-gray-800);
+  --color-yellow-800: var(--color-gray-900);
+  --color-yellow-900: #111111;
+  --color-yellow-950: #000000;
 }
 
 :root.monochrome.dark {
@@ -226,4 +214,22 @@ code {
 
 :root.dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes cardPop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.animate-card-pop {
+  animation: cardPop 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes cardFade {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.animate-card-fade {
+  animation: cardFade 0.2s ease-out forwards;
 }

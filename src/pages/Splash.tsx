@@ -86,15 +86,15 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
         <div className={`grid transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] ${stage >= 2 ? 'grid-rows-[1fr] opacity-100 mt-16' : 'grid-rows-[0fr] opacity-0 mt-0'}`}>
           <div className="overflow-hidden">
             <div className={`transition-all duration-700 delay-100 ${stage >= 2 ? 'translate-y-0' : 'translate-y-8'}`}>
-              <div className="flex gap-16 text-center bg-gray-50/50 dark:bg-gray-800/30 backdrop-blur-xl px-12 py-8 rounded-3xl border border-gray-100 dark:border-gray-800/50 shadow-xl shadow-purple-500/5 dark:shadow-none monochrome:shadow-gray-500/5">
-                <div>
-                  <p className="text-5xl font-black bg-gradient-to-br from-blue-400 to-purple-500 monochrome:from-gray-700 monochrome:to-black dark:monochrome:from-gray-300 dark:monochrome:to-white bg-clip-text text-transparent drop-shadow-sm">{stats.cardsReviewed}</p>
-                  <p className="text-xs font-bold text-gray-400 mt-3 uppercase tracking-[0.2em]">Reviewed</p>
+              <div className="flex flex-col gap-4 bg-gray-50/50 dark:bg-gray-800/30 backdrop-blur-xl px-10 py-8 rounded-3xl border border-gray-100 dark:border-gray-800/50 shadow-xl shadow-purple-500/5 dark:shadow-none monochrome:shadow-gray-500/5 min-w-[280px]">
+                <div className="flex justify-between items-center w-full">
+                  <p className="text-sm font-bold text-gray-500 dark:text-gray-400">Cards To Review</p>
+                  <p className="text-3xl font-black bg-gradient-to-br from-orange-400 to-red-500 monochrome:from-gray-700 monochrome:to-black dark:monochrome:from-gray-300 dark:monochrome:to-white bg-clip-text text-transparent drop-shadow-sm">{stats.cardsToReview}</p>
                 </div>
-                <div className="w-px self-stretch bg-gray-200 dark:bg-gray-800/80 mx-2"></div>
-                <div>
-                  <p className="text-5xl font-black bg-gradient-to-br from-orange-400 to-red-500 monochrome:from-gray-700 monochrome:to-black dark:monochrome:from-gray-300 dark:monochrome:to-white bg-clip-text text-transparent drop-shadow-sm">{stats.cardsToReview}</p>
-                  <p className="text-xs font-bold text-gray-400 mt-3 uppercase tracking-[0.2em]">To Review</p>
+                <div className="h-px self-stretch bg-gray-200 dark:bg-gray-800/80 mx-2"></div>
+                <div className="flex justify-between items-center w-full">
+                  <p className="text-sm font-bold text-gray-500 dark:text-gray-400">Cards Reviewed</p>
+                  <p className="text-3xl font-black bg-gradient-to-br from-blue-400 to-purple-500 monochrome:from-gray-700 monochrome:to-black dark:monochrome:from-gray-300 dark:monochrome:to-white bg-clip-text text-transparent drop-shadow-sm">{stats.cardsReviewed}</p>
                 </div>
               </div>
             </div>

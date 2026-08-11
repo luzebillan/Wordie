@@ -8,6 +8,7 @@ import { ReadyVersions } from '../components/NewCards/ReadyVersions'
 import { Revision } from './Revision'
 import { Practice } from './Practice'
 import { SearchResults } from './SearchResults'
+import { CardPreviewModal } from '../components/CardPreviewModal'
 
 export const Dashboard: React.FC = () => {
   const [currentView, setCurrentView] = useState('new-cards')
@@ -15,6 +16,9 @@ export const Dashboard: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [newCardsTab, setNewCardsTab] = useState('Useful Expressions')
   const [stats, setStats] = useState({ cardsReviewed: 0, cardsToReview: 0 })
+  const [previewCardId, setPreviewCardId] = useState<number | null>(null)
+  const [previewContext, setPreviewContext] = useState<'practice' | 'default'>('default')
+  const [revisionCardId, setRevisionCardId] = useState<number | undefined>(undefined)
 
   const fetchStats = async () => {
     try {
@@ -29,12 +33,38 @@ export const Dashboard: React.FC = () => {
     if (currentView === 'new-cards') {
       fetchStats()
     }
+    const handleStatsUpdated = () => {
+      if (currentView === 'new-cards') {
+        fetchStats()
+      }
+    }
+    window.addEventListener('stats-updated', handleStatsUpdated)
+    return () => window.removeEventListener('stats-updated', handleStatsUpdated)
   }, [newCardsTab, currentView])
 
   const handleNavigate = (view: string, props?: any) => {
     setCurrentView(view)
     setViewProps(props)
+    if (view === 'revision') {
+      setRevisionCardId(props)
+    }
   }
+
+
+
+  React.useEffect(() => {
+    const handlePreview = (e: any) => {
+      if (typeof e.detail === 'object' && e.detail !== null) {
+        setPreviewCardId(e.detail.id)
+        setPreviewContext(e.detail.context || 'default')
+      } else {
+        setPreviewCardId(e.detail)
+        setPreviewContext('default')
+      }
+    }
+    window.addEventListener('preview-card', handlePreview)
+    return () => window.removeEventListener('preview-card', handlePreview)
+  }, [])
 
   return (
     <div className="flex h-screen w-full bg-gray-50 dark:bg-[#111216] overflow-hidden text-left">
@@ -110,7 +140,9 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {currentView === 'revision' && <Revision specificCardId={viewProps} />}
+          <div style={{ display: currentView === 'revision' ? 'block' : 'none', height: '100%', width: '100%' }}>
+            <Revision specificCardId={revisionCardId} isActive={currentView === 'revision'} />
+          </div>
           {currentView === 'practice' && <Practice />}
           {currentView === 'search' && <SearchResults query={viewProps} onNavigate={handleNavigate} />}
           
@@ -125,6 +157,12 @@ export const Dashboard: React.FC = () => {
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)} 
+      />
+
+      <CardPreviewModal 
+        cardId={previewCardId} 
+        context={previewContext}
+        onClose={() => setPreviewCardId(null)} 
       />
     </div>
   )

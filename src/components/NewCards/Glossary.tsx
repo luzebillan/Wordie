@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Save } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 
 interface GlossaryProps {
@@ -28,17 +29,6 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
   const [similarCards, setSimilarCards] = useState<any[]>([])
   const [toastMessage, setToastMessage] = useState('')
 
-  useEffect(() => {
-    if (front.trim().length > 1 || back.trim().length > 1) {
-      const timer = setTimeout(() => {
-        window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Glossary').then(setSimilarCards)
-      }, 300)
-      return () => clearTimeout(timer)
-    } else {
-      setSimilarCards([])
-    }
-  }, [front, back])
-
   const handleGenerate = async () => {
     if (!front.trim()) {
       setError('Please enter a target term first.')
@@ -50,14 +40,18 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
     try {
       const res = await window.ipcRenderer.generateGlossary(labels, front)
       if (res.success && res.result) {
+        let finalBack = res.result
         try {
           const parsed = JSON.parse(res.result)
           setFront(parsed.front)
           setBack(parsed.back)
+          finalBack = parsed.back
         } catch {
           // Fallback if somehow it's not the exact JSON structure string we returned
           setBack(res.result)
         }
+        const updated = await window.ipcRenderer.findSimilarCards(front, finalBack, 'Glossary', true)
+        setSimilarCards(updated)
       } else {
         setError(res.error || 'Failed to generate glossary explanation.')
       }
@@ -98,7 +92,7 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
   const handleIncrementManualReviewCount = async (id: number) => {
     try {
       await window.ipcRenderer.incrementManualReviewCount(id)
-      const updated = await window.ipcRenderer.searchCards(front.trim(), back.trim(), 'Glossary')
+      const updated = await window.ipcRenderer.findSimilarCards(front.trim(), back.trim())
       setSimilarCards(updated)
       if (onUpdateStats) onUpdateStats()
       
@@ -166,13 +160,16 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
 
         {/* Front Side */}
         <div className="mb-6">
-          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Target Term (Front Side)</label>
+          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Term</label>
           <input
             type="text"
             value={front}
-            onChange={e => setFront(e.target.value)}
+            onChange={e => {
+              setFront(e.target.value)
+              setSimilarCards([])
+            }}
             className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="Type the Term Here"
+            placeholder="e.g. LLM"
           />
         </div>
 
@@ -182,33 +179,36 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
             <button
               onClick={handleGenerate}
               disabled={isGenerating || !front}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 dark:bg-gray-100 hover:bg-black dark:hover:bg-white text-white dark:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+              className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400 monochrome:bg-gray-800 monochrome:hover:bg-black dark:monochrome:bg-gray-100 dark:monochrome:hover:bg-white text-white dark:monochrome:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
               </svg>
-              {isGenerating ? 'Generating...' : 'Back Side'}
+              {isGenerating ? 'Generating...' : 'Create Glossary'}
             </button>
             {error && <span className="text-red-500 text-sm">{error}</span>}
           </div>
           
           <textarea
             value={back}
-            onChange={e => setBack(e.target.value)}
+            onChange={e => {
+              setBack(e.target.value)
+              setSimilarCards([])
+            }}
             disabled={isGenerating}
-            className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
-            placeholder="AI will generate the bilingual definition here..."
+            className={`w-full h-56 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
+            placeholder="AI-Generated Glossary Content Here"
           />
         </div>
 
-        {/* Save */}
-        <div className="flex justify-end pb-8">
+        <div className="flex justify-start pb-8">
           <button
             onClick={handleSave}
             disabled={!front || !back || isGenerating}
-            className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-6 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white rounded-lg font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Term
+            <Save className="w-4 h-4" />
+            Save
           </button>
         </div>
       </div>

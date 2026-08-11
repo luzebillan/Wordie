@@ -157,7 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
                     key={card.id} 
                     onClick={() => {
                       setShowResults(false)
-                      onNavigate('revision', card.id)
+                      window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id }))
                     }}
                     className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0"
                   >
