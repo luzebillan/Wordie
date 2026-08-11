@@ -11,6 +11,7 @@ if (!fs.existsSync(modelCacheDir)) {
 }
 
 env.cacheDir = modelCacheDir;
+env.remoteHost = 'https://hf-mirror.com';
 
 let extractor: any = null;
 let initPromise: Promise<any> | null = null;
