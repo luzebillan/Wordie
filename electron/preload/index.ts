@@ -67,10 +67,27 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   closeWindow: () => ipcRenderer.send('window-close'),
   onWindowMaximized: (callback: (isMaximized: boolean) => void) => {
     ipcRenderer.on('window-maximized', (_, isMaximized) => callback(isMaximized))
-  }
+  },
 
-  // You can expose other APTs you need here.
-  // ...
+  // Auto Updater
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkUpdate: () => ipcRenderer.invoke('check-update'),
+  startDownload: () => ipcRenderer.invoke('start-download'),
+  cancelDownload: () => ipcRenderer.invoke('cancel-download'),
+  quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
+  
+  onUpdateCanAvailable: (callback: (info: { update: boolean; version: string; newVersion?: string }) => void) => {
+    ipcRenderer.on('update-can-available', (_, info) => callback(info))
+  },
+  onUpdateError: (callback: (info: { message: string; error: Error }) => void) => {
+    ipcRenderer.on('update-error', (_, info) => callback(info))
+  },
+  onDownloadProgress: (callback: (info: any) => void) => {
+    ipcRenderer.on('download-progress', (_, info) => callback(info))
+  },
+  onUpdateDownloaded: (callback: () => void) => {
+    ipcRenderer.on('update-downloaded', () => callback())
+  }
 })
 
 // Preload script ready

@@ -209,6 +209,7 @@ ipcMain.handle('review-card', (_, { id, isCorrect }) => dbHandlers.reviewCard(id
 ipcMain.handle('get-stats-by-type', (_, type) => dbHandlers.getStatsByType(type))
 ipcMain.handle('get-revision-stats', () => dbHandlers.getRevisionStats())
 ipcMain.handle('undo-review', () => dbHandlers.undoReview())
+ipcMain.handle('get-app-version', () => app.getVersion())
 
 // Data Management IPCs
 ipcMain.handle('export-data', async () => {

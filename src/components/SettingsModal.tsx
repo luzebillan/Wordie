@@ -7,12 +7,13 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data' | 'advanced' | 'prompts'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data' | 'advanced' | 'prompts' | 'about'>('general')
   
   // General State
   const [showSplash, setShowSplash] = useState(true)
   const [theme, setTheme] = useState('system')
   const [themeColor, setThemeColor] = useState('monochrome')
+  const [autoDownloadUpdates, setAutoDownloadUpdates] = useState(false)
 
   // API State
   const [apiKey, setApiKey] = useState('')
@@ -46,6 +47,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isAiValidating, setIsAiValidating] = useState(false)
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
+  // Update State
+  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready'>('idle')
+  const [updateProgress, setUpdateProgress] = useState(0)
+  const [appVersion, setAppVersion] = useState('Unknown')
+  const [newVersion, setNewVersion] = useState('')
+
+  useEffect(() => {
+    if (window.ipcRenderer.getAppVersion) {
+      window.ipcRenderer.getAppVersion().then(v => setAppVersion(v))
+    }
+
+    if (window.ipcRenderer.onUpdateCanAvailable) {
+      window.ipcRenderer.onUpdateCanAvailable((info) => {
+        setAppVersion(info.version)
+        if (info.update) {
+          setUpdateState('available')
+          if (info.newVersion) setNewVersion(info.newVersion)
+        } else {
+          setUpdateState('idle')
+          showToast('You are on the latest version', 'success')
+        }
+      })
+      window.ipcRenderer.onDownloadProgress((info) => {
+        setUpdateState('downloading')
+        setUpdateProgress(Math.round(info.percent))
+      })
+      window.ipcRenderer.onUpdateDownloaded(() => {
+        setUpdateState('ready')
+      })
+      window.ipcRenderer.onUpdateError((info) => {
+        setUpdateState('idle')
+        showToast(`Update failed: ${info.message}`, 'error')
+      })
+    }
+  }, [])
+
+  const handleUpdateAction = async () => {
+    if (updateState === 'idle') {
+      setUpdateState('checking')
+      try {
+        const res = await window.ipcRenderer.checkUpdate()
+        if (res && res.error) {
+          throw new Error(res.message)
+        }
+      } catch (e: any) {
+        setUpdateState('idle')
+        showToast(`Error checking for update: ${e.message}`, 'error')
+      }
+    } else if (updateState === 'available') {
+      window.ipcRenderer.startDownload()
+    } else if (updateState === 'ready') {
+      window.ipcRenderer.quitAndInstall()
+    }
+  }
+
   useEffect(() => {
     if (isOpen) {
       window.ipcRenderer.getSettings().then(settings => {
@@ -58,6 +114,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (settings.skipSplashScreen) setShowSplash(settings.skipSplashScreen !== 'true')
         if (settings.theme) setTheme(settings.theme)
         if (settings.themeColor) setThemeColor(settings.themeColor)
+        if (settings.autoDownloadUpdates === 'true') setAutoDownloadUpdates(true)
         if (settings.semanticMatchDistance) setSemanticMatchDistance(settings.semanticMatchDistance)
         if (settings.srsReward) setSrsReward(settings.srsReward)
         if (settings.srsPenalty) setSrsPenalty(settings.srsPenalty)
@@ -252,9 +309,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             >
               Data Management
             </button>
-          </div>
+              <button 
+                onClick={() => setActiveTab('about')}
+                className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'about' 
+                    ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                About / Updates
+              </button>
+            </div>
 
-          {/* Tab Content */}
+            {/* Tab Content */}
           <div className="flex-1 p-6 overflow-y-auto">
             {activeTab === 'general' ? (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -307,6 +374,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <option value="monochrome">Monochrome (Default)</option>
                     <option value="colorful">Colorful</option>
                   </select>
+                </div>
+
+              </div>
+            ) : activeTab === 'about' ? (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300 h-full flex flex-col justify-center max-w-lg mx-auto">
+                <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold text-3xl mb-4 shadow-lg shadow-purple-500/30">
+                    C
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1">
+                    CardsApp
+                  </h3>
+                  <div className="text-sm bg-gray-200 dark:bg-gray-800 px-3 py-1 rounded-full text-gray-600 dark:text-gray-300 mb-6 font-medium">
+                    Version {appVersion !== 'Unknown' ? appVersion : '...'}
+                  </div>
+                  
+                  <div className="w-full space-y-4">
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Auto-download Updates</h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Automatically download updates in the background</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={autoDownloadUpdates} onChange={e => {
+                          setAutoDownloadUpdates(e.target.checked)
+                          autoSave('autoDownloadUpdates', e.target.checked ? 'true' : 'false')
+                        }} />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {updateState === 'checking' && 'Checking for updates...'}
+                        {updateState === 'available' && `New version v${newVersion} is available!`}
+                        {updateState === 'downloading' && (
+                          <span className="flex flex-col items-center gap-2">
+                            <span>Downloading update... {updateProgress}%</span>
+                            <div className="w-full max-w-xs h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                              <div className="h-full bg-purple-500 transition-all duration-300" style={{ width: `${updateProgress}%` }}></div>
+                            </div>
+                          </span>
+                        )}
+                        {updateState === 'ready' && 'Update is ready to install.'}
+                        {updateState === 'idle' && 'You are using the latest version.'}
+                      </p>
+                    </div>
+
+                    <div className="flex justify-center">
+                      <button
+                        onClick={handleUpdateAction}
+                        disabled={updateState === 'checking' || updateState === 'downloading'}
+                        className="px-6 py-2.5 bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/40 dark:text-purple-300 dark:hover:bg-purple-800/60 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px] text-center"
+                      >
+                        {updateState === 'idle' && 'Check for Update'}
+                        {updateState === 'checking' && 'Checking...'}
+                        {updateState === 'available' && 'Download Update'}
+                        {updateState === 'downloading' && 'Downloading...'}
+                        {updateState === 'ready' && 'Restart & Install'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : activeTab === 'api' ? (

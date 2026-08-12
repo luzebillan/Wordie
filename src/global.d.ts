@@ -47,5 +47,16 @@ interface Window {
     maximizeWindow: () => void
     closeWindow: () => void
     onWindowMaximized?: (callback: (maximized: boolean) => void) => void
+
+    // Auto Updater
+    getAppVersion: () => Promise<string>
+    checkUpdate: () => Promise<any>
+    startDownload: () => Promise<void>
+    cancelDownload: () => Promise<void>
+    quitAndInstall: () => Promise<void>
+    onUpdateCanAvailable: (callback: (info: { update: boolean; version: string; newVersion?: string }) => void) => void
+    onUpdateError: (callback: (info: { message: string; error: Error }) => void) => void
+    onDownloadProgress: (callback: (info: any) => void) => void
+    onUpdateDownloaded: (callback: () => void) => void
   }
 }

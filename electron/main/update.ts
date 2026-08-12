@@ -6,15 +6,16 @@ import type {
 } from 'electron-updater'
 // Pure cjs module does not support named exports, so we need to import the default export and access the autoUpdater property
 import updater from 'electron-updater'
+import { dbHandlers } from './db'
 
 const autoUpdater = updater.autoUpdater
 let cancellationToken = new updater.CancellationToken()
 let isDownloading = false
 
 export function update(win: Electron.BrowserWindow) {
-
+  const settings = dbHandlers.getSettings()
   // When set to false, the update download will be triggered through the API
-  autoUpdater.autoDownload = false
+  autoUpdater.autoDownload = settings.autoDownloadUpdates === 'true'
   autoUpdater.disableWebInstaller = false
   autoUpdater.allowDowngrade = false
 

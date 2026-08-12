@@ -64,6 +64,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
     return () => window.removeEventListener('stats-updated', fetchStats)
   }, [])
 
+  const [hasUpdate, setHasUpdate] = useState(false)
+  const [updateReady, setUpdateReady] = useState(false)
+
+  useEffect(() => {
+    // Silently check for updates in background
+    if (window.ipcRenderer.checkUpdate) {
+      window.ipcRenderer.checkUpdate().catch(console.error)
+      
+      window.ipcRenderer.onUpdateCanAvailable((info) => {
+        if (info.update) setHasUpdate(true)
+      })
+      window.ipcRenderer.onUpdateDownloaded(() => {
+        setHasUpdate(true)
+        setUpdateReady(true)
+      })
+    }
+  }, [])
+
   const navItems = [
     { id: 'new-cards', label: 'New Cards', icon: <FileText className="w-5 h-5" /> },
     { id: 'revision', label: 'Revision', icon: <FolderClock className="w-5 h-5" /> },
@@ -194,13 +212,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
 
       <div className="flex-1"></div>
 
+      {/* Restart to Update Button */}
+      {updateReady && (
+        <div className="mb-3 px-1">
+          <button
+            onClick={() => window.ipcRenderer.quitAndInstall()}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 shadow-md shadow-purple-500/20 transition-all animate-pulse hover:animate-none"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+            </svg>
+            Restart to Update
+          </button>
+        </div>
+      )}
+
       {/* Settings Row */}
       <div className="mb-4">
         <button
           onClick={onOpenSettings}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200"
         >
-          <Settings className="w-5 h-5 shrink-0" />
+          <div className="relative">
+            <Settings className="w-5 h-5 shrink-0" />
+            {hasUpdate && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white dark:ring-black/20"></span>
+            )}
+          </div>
           Settings
         </button>
       </div>
