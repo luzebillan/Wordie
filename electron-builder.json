@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
+  "appId": "com.luzebillan.wordie",
   "asar": true,
   "directories": {
     "output": "release/${version}"
@@ -8,6 +8,9 @@
   "files": [
     "dist-electron",
     "dist"
+  ],
+  "asarUnpack": [
+    "dist/models/**/*"
   ],
   "mac": {
     "artifactName": "${productName}_${version}.${ext}",
@@ -36,7 +39,7 @@
   "publish": {
     "provider": "github",
     "owner": "luzebillan",
-    "repo": "cardsapp",
+    "repo": "wordie",
     "releaseType": "release"
   }
 }

@@ -80,6 +80,8 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       setError('')
       setSimilarCards([])
       if (onUpdateStats) onUpdateStats()
+      window.dispatchEvent(new Event('stats-updated'))
+      window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Card saved successfully!' } }))
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
     }
@@ -243,7 +245,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
         <div className="flex justify-start pb-8">
           <button
             onClick={handleSave}
-            disabled={!front || !back || isGenerating}
+            disabled={(!front.trim() && !imageUrl.trim()) || !back.trim() || isGenerating}
             className="flex items-center gap-2 px-6 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white rounded-lg font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />

@@ -8,6 +8,7 @@ import { ReadyVersions } from '../components/NewCards/ReadyVersions'
 import { Revision } from './Revision'
 import { Practice } from './Practice'
 import { SearchResults } from './SearchResults'
+import { Library } from './Library'
 import { CardPreviewModal } from '../components/CardPreviewModal'
 
 export const Dashboard: React.FC = () => {
@@ -18,7 +19,10 @@ export const Dashboard: React.FC = () => {
   const [stats, setStats] = useState({ cardsReviewed: 0, cardsToReview: 0 })
   const [previewCardId, setPreviewCardId] = useState<number | null>(null)
   const [previewContext, setPreviewContext] = useState<'practice' | 'default'>('default')
+  const [previewEditMode, setPreviewEditMode] = useState(false)
   const [revisionCardId, setRevisionCardId] = useState<number | undefined>(undefined)
+
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null)
 
   const fetchStats = async () => {
     try {
@@ -38,8 +42,23 @@ export const Dashboard: React.FC = () => {
         fetchStats()
       }
     }
+    const handleCardDeleted = () => {
+      if (currentView === 'new-cards') {
+        fetchStats()
+      }
+    }
+    const handleShowToast = (e: any) => {
+      setToast({ message: e.detail.message, type: e.detail.type || 'success' })
+      setTimeout(() => setToast(null), 3000)
+    }
     window.addEventListener('stats-updated', handleStatsUpdated)
-    return () => window.removeEventListener('stats-updated', handleStatsUpdated)
+    window.addEventListener('card-deleted', handleCardDeleted)
+    window.addEventListener('show-toast', handleShowToast)
+    return () => {
+      window.removeEventListener('stats-updated', handleStatsUpdated)
+      window.removeEventListener('card-deleted', handleCardDeleted)
+      window.removeEventListener('show-toast', handleShowToast)
+    }
   }, [newCardsTab, currentView])
 
   const handleNavigate = (view: string, props?: any) => {
@@ -57,9 +76,11 @@ export const Dashboard: React.FC = () => {
       if (typeof e.detail === 'object' && e.detail !== null) {
         setPreviewCardId(e.detail.id)
         setPreviewContext(e.detail.context || 'default')
+        setPreviewEditMode(e.detail.editMode || false)
       } else {
         setPreviewCardId(e.detail)
         setPreviewContext('default')
+        setPreviewEditMode(false)
       }
     }
     window.addEventListener('preview-card', handlePreview)
@@ -145,8 +166,9 @@ export const Dashboard: React.FC = () => {
           </div>
           {currentView === 'practice' && <Practice />}
           {currentView === 'search' && <SearchResults query={viewProps} onNavigate={handleNavigate} />}
+          {currentView === 'library' && <Library />}
           
-          {currentView !== 'new-cards' && currentView !== 'revision' && currentView !== 'practice' && currentView !== 'search' && (
+          {currentView !== 'new-cards' && currentView !== 'revision' && currentView !== 'practice' && currentView !== 'search' && currentView !== 'library' && (
             <div className="bg-white/60 dark:bg-black/30 backdrop-blur-md rounded-2xl border border-white/40 dark:border-white/10 p-8 min-h-[400px] flex items-center justify-center text-gray-400">
               <p>Content for {currentView} goes here.</p>
             </div>
@@ -162,8 +184,20 @@ export const Dashboard: React.FC = () => {
       <CardPreviewModal 
         cardId={previewCardId} 
         context={previewContext}
+        initialEditMode={previewEditMode}
         onClose={() => setPreviewCardId(null)} 
       />
+
+      {/* Global Toast Notification */}
+      {toast && (
+        <div className="fixed inset-x-0 bottom-4 flex justify-center z-[100] pointer-events-none">
+          <div className={`px-4 py-2 rounded-full shadow-lg text-sm font-medium animate-in slide-in-from-bottom-4 fade-in duration-300 pointer-events-auto ${
+            toast.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/80 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-900/80 dark:text-red-100'
+          }`}>
+            {toast.message}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

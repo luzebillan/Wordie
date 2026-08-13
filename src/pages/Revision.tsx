@@ -25,6 +25,22 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
   const [isReversed, setIsReversed] = useState<boolean>(false)
 
   const [stats, setStats] = useState({ memorized: 0, forgotten: 0, toReview: 0 })
+  const [memorizedIds, setMemorizedIds] = useState<Set<number>>(new Set())
+  const [forgottenIds, setForgottenIds] = useState<Set<number>>(new Set())
+
+  // Timer & Threshold State
+  const [timerStartTime, setTimerStartTime] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0)
+  const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
+  const [easyThreshold, setEasyThreshold] = useState<number>(2)
+  const [goodThreshold, setGoodThreshold] = useState<number>(30)
+
+  useEffect(() => {
+    window.ipcRenderer.getSettings().then(settings => {
+      if (settings.easyThreshold) setEasyThreshold(parseFloat(settings.easyThreshold))
+      if (settings.goodThreshold) setGoodThreshold(parseFloat(settings.goodThreshold))
+    })
+  }, [])
 
   const loadCardsAndStats = async (randomize = false) => {
     setIsLoading(true)
@@ -38,6 +54,8 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
         const cards = await window.ipcRenderer.getDueCards(randomize)
         setDueCards(cards || [])
         setCurrentIndex(0)
+        setMemorizedIds(new Set())
+        setForgottenIds(new Set())
         const revStats = await window.ipcRenderer.getRevisionStats()
         setStats(revStats || { memorized: 0, forgotten: 0, toReview: 0 })
       }
@@ -59,8 +77,19 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
         setStats(revStats || { memorized: 0, forgotten: 0, toReview: 0 })
       }
     }
+    const handleCardDeleted = (e: any) => {
+      const deletedId = e.detail
+      setDueCards(prev => prev.filter(c => c.id !== deletedId))
+      // Also fetch stats just in case
+      fetchRevStats()
+    }
+    
     window.addEventListener('stats-updated', fetchRevStats)
-    return () => window.removeEventListener('stats-updated', fetchRevStats)
+    window.addEventListener('card-deleted', handleCardDeleted)
+    return () => {
+      window.removeEventListener('stats-updated', fetchRevStats)
+      window.removeEventListener('card-deleted', handleCardDeleted)
+    }
   }, [specificCardId])
 
   const currentCard = dueCards[currentIndex]
@@ -82,8 +111,11 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       } else {
         setClozeContext('')
         setClozeError(null)
+        setTimerStartTime(Date.now())
+        setLiveElapsedMs(0)
       }
       setShowAnswer(false)
+      setElapsedSeconds(0)
     }
   }, [currentCard])
 
@@ -93,10 +125,48 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     const res = await window.ipcRenderer.generateRevisionCloze({ front: card.front, back: card.back })
     if (res.success && res.result) {
       setClozeContext(res.result)
+      setTimerStartTime(Date.now())
+      setLiveElapsedMs(0)
     } else {
       setClozeError(res.error || 'Failed to generate cloze context.')
     }
     setClozeLoading(false)
+  }
+
+  // Live Timer Effect
+  useEffect(() => {
+    let intervalId: any;
+    if (isActive && timerStartTime !== null && !showAnswer && !isEditingMode && !clozeLoading) {
+      intervalId = setInterval(() => {
+        setLiveElapsedMs(Date.now() - timerStartTime)
+      }, 50) // High frequency for smooth UI
+    }
+    return () => clearInterval(intervalId)
+  }, [timerStartTime, showAnswer, isEditingMode, clozeLoading, isActive])
+
+  // Reset timer when switching back to the revision tab
+  useEffect(() => {
+    if (isActive && !showAnswer && !isEditingMode && currentCard) {
+      if (currentCard.type !== 'Useful Expressions' || clozeContext) {
+        setTimerStartTime(Date.now())
+        setLiveElapsedMs(0)
+      }
+    }
+  }, [isActive])
+
+  const currentElapsedSeconds = liveElapsedMs / 1000;
+  
+  const getRatingForTime = (timeInSecs: number) => {
+    if (timeInSecs <= easyThreshold) return 'easy'
+    if (timeInSecs <= goodThreshold) return 'good'
+    return 'hard'
+  }
+
+  const getRatingBadgeUI = (timeInSecs: number) => {
+    const r = getRatingForTime(timeInSecs);
+    if (r === 'easy') return { label: 'Easy', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400', icon: '⚡' }
+    if (r === 'good') return { label: 'Good', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400', icon: '👍' }
+    return { label: 'Hard', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400', icon: '🐢' }
   }
 
   const handleSkipCard = () => {
@@ -109,6 +179,9 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
 
   const handleShowAnswer = () => {
     setShowAnswer(true)
+    if (timerStartTime) {
+      setElapsedSeconds((Date.now() - timerStartTime) / 1000)
+    }
   }
 
   const handleReview = async (isCorrect: boolean) => {
@@ -120,8 +193,31 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     }
 
     if (!specificCardId) {
-      // Submit review log and update SM-2 only if not in isolated review mode
-      await window.ipcRenderer.reviewCard(currentCard.id, isCorrect)
+      const rating = isCorrect ? getRatingForTime(elapsedSeconds) : 'again'
+      await window.ipcRenderer.reviewCard(currentCard.id, isCorrect, rating, elapsedSeconds)
+      
+      if (!isCorrect) {
+        setForgottenIds(prev => new Set(prev).add(currentCard.id))
+        setMemorizedIds(prev => {
+          const next = new Set(prev)
+          next.delete(currentCard.id)
+          return next
+        })
+        // Re-insert card slightly ahead in the queue so it reappears
+        setDueCards(prev => {
+          const newQueue = [...prev]
+          const insertIdx = Math.min(currentIndex + 3, newQueue.length)
+          newQueue.splice(insertIdx, 0, currentCard)
+          return newQueue
+        })
+      } else {
+        setMemorizedIds(prev => new Set(prev).add(currentCard.id))
+        setForgottenIds(prev => {
+          const next = new Set(prev)
+          next.delete(currentCard.id)
+          return next
+        })
+      }
     }
     
     // Notify sidebar to refresh stats
@@ -342,16 +438,16 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
             </svg>
           </button>
           <div className="flex items-center gap-6 text-xs font-medium text-gray-500 mb-2 justify-center">
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-800 dark:bg-gray-200"></span> Reviewed {stats.memorized}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400"></span> Second Review {stats.forgotten}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700"></span> To Review {stats.toReview}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-800 dark:bg-gray-200"></span> Reviewed {memorizedIds.size}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400"></span> Second Review {forgottenIds.size}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700"></span> To Review {Math.max(0, dueCards.length - currentIndex)}</span>
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-1.5 flex overflow-hidden">
-            {stats.memorized + stats.forgotten + stats.toReview > 0 ? (
+            {dueCards.length > 0 ? (
               <>
-                <div className="bg-gray-800 dark:bg-gray-200 h-full transition-all duration-300" style={{ width: `${(stats.memorized / (stats.memorized + stats.forgotten + stats.toReview)) * 100}%` }} />
-                <div className="bg-red-400 h-full transition-all duration-300" style={{ width: `${(stats.forgotten / (stats.memorized + stats.forgotten + stats.toReview)) * 100}%` }} />
-                <div className="bg-gray-200 dark:bg-gray-700 h-full transition-all duration-300" style={{ width: `${(stats.toReview / (stats.memorized + stats.forgotten + stats.toReview)) * 100}%` }} />
+                <div className="bg-gray-800 dark:bg-gray-200 h-full transition-all duration-300" style={{ width: `${(memorizedIds.size / dueCards.length) * 100}%` }} />
+                <div className="bg-red-400 h-full transition-all duration-300" style={{ width: `${(forgottenIds.size / dueCards.length) * 100}%` }} />
+                <div className="bg-gray-200 dark:bg-gray-700 h-full transition-all duration-300" style={{ width: `${(Math.max(0, dueCards.length - currentIndex) / dueCards.length) * 100}%` }} />
               </>
             ) : (
               <div className="bg-gray-200 dark:bg-gray-800 h-full w-full" />
@@ -377,6 +473,14 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
         {/* The Card */}
         <div className="w-full bg-white dark:bg-[#1f2028] p-10 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col min-h-[300px] relative mb-6">
           
+          {/* Timer Badge */}
+          {(!clozeLoading || currentCard.type !== 'Useful Expressions') && timerStartTime !== null && (
+            <div className={`absolute top-4 left-4 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wider transition-colors duration-300 ${getRatingBadgeUI(showAnswer ? elapsedSeconds : currentElapsedSeconds).color}`}>
+              <span className={showAnswer ? "" : "animate-pulse"}>{getRatingBadgeUI(showAnswer ? elapsedSeconds : currentElapsedSeconds).icon}</span>
+              <span className="font-mono">{(showAnswer ? elapsedSeconds : currentElapsedSeconds).toFixed(1)}s</span>
+            </div>
+          )}
+
           {/* Edit Button */}
           <button
             onClick={() => setIsEditingMode(!isEditingMode)}
@@ -457,15 +561,20 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
           <div className="flex gap-4 animate-in slide-in-from-bottom-4 duration-300">
             <button
               onClick={() => handleReview(false)}
-              className="px-8 py-3 bg-gray-100 dark:bg-[#25262c] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#2a2b32] rounded-full font-bold text-base transition-colors flex items-center gap-2 shadow-sm"
+              className="px-8 py-3 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded-full font-bold text-base transition-colors flex items-center gap-2 shadow-sm"
             >
               <span className="text-lg leading-none">×</span> Forget
             </button>
             <button
               onClick={() => handleReview(true)}
-              className="px-8 py-3 bg-gray-100 dark:bg-[#25262c] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#2a2b32] rounded-full font-bold text-base transition-colors flex items-center gap-2 shadow-sm"
+              className={`px-8 py-3 rounded-full font-bold text-base transition-colors flex items-center gap-2 shadow-sm ${
+                getRatingForTime(elapsedSeconds) === 'easy' ? 'bg-emerald-500 hover:bg-emerald-600 text-white' :
+                getRatingForTime(elapsedSeconds) === 'good' ? 'bg-blue-500 hover:bg-blue-600 text-white' :
+                'bg-amber-500 hover:bg-amber-600 text-white'
+              }`}
             >
-              <span className="text-lg leading-none">√</span> Got it
+              <span className="text-lg leading-none">√</span> 
+              Got it ({getRatingBadgeUI(elapsedSeconds).label})
             </button>
           </div>
         )}

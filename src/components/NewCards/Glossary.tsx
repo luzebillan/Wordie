@@ -1,33 +1,77 @@
 import { useState, useEffect } from 'react'
-import { Save } from 'lucide-react'
+import { Save, X } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
+import { DOMAINS, getStoredDomainFields } from '../../constants/domains'
 
 interface GlossaryProps {
   onNavigate?: (view: string, props?: any) => void;
   onUpdateStats?: () => void;
 }
 
-const DOMAINS = [
-  'Science',
-  'Technology and Engineering',
-  'Politics',
-  'Economics and Finance',
-  'Sociology',
-  'Psychology',
-  'Liberal Arts',
-  'Entertainment'
-]
+
 
 export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats }) => {
+  const [domainFields, setDomainFields] = useState<Record<string, string[]>>(getStoredDomainFields())
   const [selectedDomain, setSelectedDomain] = useState(DOMAINS[0])
-  const [field, setField] = useState('')
+  const [newFieldInput, setNewFieldInput] = useState('')
   const [labels, setLabels] = useState<string[]>([])
+  
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
   const [similarCards, setSimilarCards] = useState<any[]>([])
   const [toastMessage, setToastMessage] = useState('')
+
+  const [confirmDeleteField, setConfirmDeleteField] = useState<string | null>(null)
+
+  useEffect(() => {
+    localStorage.setItem('glossaryDomainFields', JSON.stringify(domainFields))
+  }, [domainFields])
+
+  const currentFields = domainFields[selectedDomain] || []
+
+  const toggleLabel = (label: string) => {
+    if (labels.includes(label)) {
+      setLabels(labels.filter(l => l !== label))
+    } else {
+      setLabels([...labels, label])
+    }
+  }
+
+  const handleAddField = () => {
+    const fieldName = newFieldInput.trim()
+    if (!fieldName) return
+    
+    setDomainFields(prev => {
+      const fields = prev[selectedDomain] || []
+      if (fields.includes(fieldName)) return prev
+      return {
+        ...prev,
+        [selectedDomain]: [...fields, fieldName]
+      }
+    })
+    setNewFieldInput('')
+    
+    const newLabel = `${selectedDomain}\\${fieldName}`
+    if (!labels.includes(newLabel)) {
+      setLabels(prev => [...prev, newLabel])
+    }
+  }
+
+  const handleDeleteField = (fieldToDelete: string) => {
+    setDomainFields(prev => {
+      const fields = prev[selectedDomain] || []
+      return {
+        ...prev,
+        [selectedDomain]: fields.filter(f => f !== fieldToDelete)
+      }
+    })
+    
+    const labelToRemove = `${selectedDomain}\\${fieldToDelete}`
+    setLabels(prev => prev.filter(l => l !== labelToRemove))
+    setConfirmDeleteField(null)
+  }
 
   const handleGenerate = async () => {
     if (!front.trim()) {
@@ -68,6 +112,11 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
       return
     }
     
+    if (labels.length === 0) {
+      setError('Please select at least one field.')
+      return
+    }
+    
     try {
       await window.ipcRenderer.createCard({
         type: 'Glossary',
@@ -80,10 +129,12 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
       setFront('')
       setBack('')
       setLabels([])
-      setField('')
+      setNewFieldInput('')
       setError('')
       setSimilarCards([])
       if (onUpdateStats) onUpdateStats()
+      window.dispatchEvent(new Event('stats-updated'))
+      window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Card saved successfully!' } }))
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
     }
@@ -103,53 +154,99 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
     }
   }
 
-  const handleAddLabel = () => {
-    const newLabel = field.trim() ? `${selectedDomain}\\${field.trim()}` : selectedDomain
-    if (!labels.includes(newLabel)) {
-      setLabels([...labels, newLabel])
-    }
-    setField('')
-  }
-
   return (
-    <div className="flex h-full animate-in fade-in duration-500">
+    <div className="flex h-full animate-in fade-in duration-500" onClick={() => setConfirmDeleteField(null)}>
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
         
         {/* Domain and Field */}
         <div className="mb-6">
-          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Domain / Field</label>
-          <div className="flex gap-2 mb-3">
+          <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Domain / Fields</label>
+          
+          <div className="mb-3">
             <select
               value={selectedDomain}
               onChange={e => setSelectedDomain(e.target.value)}
-              className="w-1/2 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+              className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
             >
               {DOMAINS.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
-            <input
-              type="text"
-              value={field}
-              onChange={e => setField(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddLabel()}
-              className="w-1/2 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-              placeholder="Custom Field (Optional)"
-            />
-            <button
-              onClick={handleAddLabel}
-              className="px-6 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-2xl font-bold transition-colors"
-            >
-              Add
-            </button>
           </div>
           
-          {/* Labels Tags */}
+          {/* Fields Area */}
+          <div className="p-4 bg-gray-50 dark:bg-black/20 rounded-2xl border border-gray-100 dark:border-gray-800/50">
+            <div className="mb-3 text-sm font-medium text-gray-500 dark:text-gray-400">
+              Select fields for <span className="text-gray-700 dark:text-gray-300 font-bold">{selectedDomain}</span>:
+            </div>
+            
+            <div className="flex flex-wrap gap-2 items-center">
+              {currentFields.map(field => {
+                const labelStr = `${selectedDomain}\\${field}`
+                const isSelected = labels.includes(labelStr)
+                const isConfirming = confirmDeleteField === field
+                
+                return (
+                  <div key={field} className="group relative inline-flex items-center">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleLabel(labelStr); }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                        isSelected 
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300 dark:border-purple-600' 
+                          : 'bg-white dark:bg-[#1f2028] text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-800 hover:border-purple-300 shadow-sm'
+                      }`}
+                    >
+                      {field}
+                    </button>
+                    
+                    {isConfirming ? (
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 z-10 bg-white dark:bg-gray-800 shadow-lg px-2 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 animate-in fade-in zoom-in duration-150">
+                        <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 whitespace-nowrap mr-1">Delete?</span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteField(field); }}
+                          className="text-[10px] font-bold bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded transition-colors"
+                        >
+                          Yes
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteField(null); }}
+                          className="text-[10px] font-bold bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-2 py-1 rounded transition-colors"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteField(field); }}
+                        className="absolute -top-1.5 -right-1.5 hidden group-hover:flex items-center justify-center w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors shadow-sm"
+                        title="Delete field"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+              
+              <div className="inline-flex items-center ml-1">
+                <input 
+                  type="text" 
+                  value={newFieldInput}
+                  onChange={e => setNewFieldInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddField()}
+                  placeholder="+ Add Field"
+                  className="px-3 py-1.5 text-sm bg-transparent border border-dashed border-gray-300 dark:border-gray-700 rounded-lg outline-none focus:border-purple-500 focus:border-solid transition-colors w-28 placeholder:text-gray-400"
+                />
+              </div>
+            </div>
+          </div>
+          
+          {/* Selected Labels Summary */}
           {labels.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               {labels.map(label => (
-                <span key={label} className="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-sm font-medium">
+                <span key={label} className="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-transparent dark:border-purple-800/50 rounded-full text-sm font-medium">
                   {label}
-                  <button onClick={() => setLabels(labels.filter(l => l !== label))} className="hover:text-purple-900 dark:hover:text-purple-100">
+                  <button onClick={() => toggleLabel(label)} className="hover:text-purple-900 dark:hover:text-purple-100 opacity-70 hover:opacity-100 transition-opacity">
                     &times;
                   </button>
                 </span>
@@ -161,14 +258,13 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
         {/* Front Side */}
         <div className="mb-6">
           <label className="block text-lg font-bold text-gray-900 dark:text-white mb-2">Term</label>
-          <input
-            type="text"
+          <textarea
             value={front}
             onChange={e => {
               setFront(e.target.value)
               setSimilarCards([])
             }}
-            className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
+            className="w-full p-4 h-24 resize-none bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
             placeholder="e.g. LLM"
           />
         </div>
@@ -178,7 +274,8 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
           <div className="flex items-center gap-4 mb-2">
             <button
               onClick={handleGenerate}
-              disabled={isGenerating || !front}
+              disabled={isGenerating || !front || labels.length === 0}
+              title={labels.length === 0 ? "Select at least one field" : ""}
               className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400 monochrome:bg-gray-800 monochrome:hover:bg-black dark:monochrome:bg-gray-100 dark:monochrome:hover:bg-white text-white dark:monochrome:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
@@ -204,7 +301,7 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
         <div className="flex justify-start pb-8">
           <button
             onClick={handleSave}
-            disabled={!front || !back || isGenerating}
+            disabled={!front || !back || isGenerating || labels.length === 0}
             className="flex items-center gap-2 px-6 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white rounded-lg font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
@@ -224,3 +321,4 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
     </div>
   )
 }
+

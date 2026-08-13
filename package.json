@@ -1,6 +1,7 @@
 {
-  "name": "cardsapp",
-  "version": "1.1.0-beta",
+  "name": "wordie",
+  "productName": "Wordie",
+  "version": "1.0.0",
   "private": true,
   "description": "Electron Vite React boilerplate.",
   "license": "MIT",
@@ -24,7 +25,8 @@
     "electron-updater": "^6.8.3",
     "lucide-react": "^1.28.0",
     "natural": "^8.1.1",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

@@ -1,17 +1,21 @@
 import React, { useEffect, useState } from 'react'
+import { CardEditForm } from './CardEditForm'
 
 interface CardPreviewModalProps {
   cardId: number | null
   context?: 'practice' | 'default'
+  initialEditMode?: boolean
   onClose: () => void
 }
 
-export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, context = 'default', onClose }) => {
+export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, context = 'default', initialEditMode = false, onClose }) => {
   const [card, setCard] = useState<any | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isEditingMode, setIsEditingMode] = useState(false)
+  const [isEditingMode, setIsEditingMode] = useState(initialEditMode)
   const [editFront, setEditFront] = useState('')
   const [editBack, setEditBack] = useState('')
+  const [editLabel, setEditLabel] = useState('')
+  const [editType, setEditType] = useState('')
   const [synonyms, setSynonyms] = useState<any[]>([])
   const [isSearchingSynonyms, setIsSearchingSynonyms] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -23,7 +27,9 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
         setCard(data)
         setEditFront(data?.front || '')
         setEditBack(data?.back || '')
-        setIsEditingMode(false)
+        setEditLabel(data?.label || '')
+        setEditType(data?.type || '')
+        setIsEditingMode(initialEditMode)
         setIsLoading(false)
         setSynonyms([])
         setIsSearchingSynonyms(false)
@@ -51,14 +57,15 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, isEditingMode, editFront, editBack, card])
+  }, [onClose, isEditingMode, editFront, editBack, editLabel, editType, card])
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (updates: { front?: string, back?: string, label?: string, type?: string, style?: string, imageUrl?: string }) => {
     if (!card) return
     try {
-      await window.ipcRenderer.updateCardText(card.id, editFront, editBack)
-      setCard({ ...card, front: editFront, back: editBack })
+      await window.ipcRenderer.updateCard(card.id, updates)
+      setCard({ ...card, ...updates })
       setIsEditingMode(false)
+      window.dispatchEvent(new Event('stats-updated'))
     } catch (e) {
       console.error(e)
     }
@@ -204,9 +211,18 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center text-gray-500 animate-pulse">Loading card details...</div>
         ) : card ? (
+          isEditingMode ? (
+            <div className="flex-1 overflow-hidden">
+              <CardEditForm 
+                card={card} 
+                onCancel={() => setIsEditingMode(false)} 
+                onSave={handleSaveEdit} 
+              />
+            </div>
+          ) : (
           <>
             {/* Card Attribute UI - Moved to Center */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 text-xs font-bold text-gray-400 uppercase tracking-widest">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2 w-full max-w-[60%]">
               {card.type} {card.label && card.label !== 'Vocabulary' ? `• ${card.label}` : ''}
             </div>
 
@@ -249,16 +265,7 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
 
             {/* Front Side */}
             <div className="w-full flex flex-col flex-1 items-center justify-center min-h-[150px]">
-              {isEditingMode ? (
-                <textarea
-                  value={editFront}
-                  onChange={e => setEditFront(e.target.value)}
-                  className="w-full text-center text-3xl font-bold bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 rounded-2xl outline-none resize-none min-h-[120px] p-6 transition-all"
-                  placeholder="Front Text"
-                />
-              ) : (
-                renderCardFront()
-              )}
+              {renderCardFront()}
             </div>
 
             {/* Divider */}
@@ -267,16 +274,7 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
             {/* Back Side */}
             <div className="w-full flex flex-col flex-1 relative mt-2">
               <div className="w-full flex-1 flex items-center justify-center">
-                {isEditingMode ? (
-                  <textarea
-                    value={editBack}
-                    onChange={e => setEditBack(e.target.value)}
-                    className="w-full flex-1 min-h-[140px] bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 rounded-2xl outline-none resize-none text-2xl text-center p-6 transition-all"
-                    placeholder="Back Text / Translation"
-                  />
-                ) : (
-                  renderCardBack()
-                )}
+                {renderCardBack()}
               </div>
 
               {/* Footer area inside card */}
@@ -287,16 +285,9 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
                   <span>{card.useCount || 0} Uses</span>
                 </div>
 
-                {/* +1 Use Count or Save Button */}
+                {/* +1 Use Count */}
                 <div>
-                  {isEditingMode ? (
-                    <button 
-                      onClick={handleSaveEdit}
-                      className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-bold shadow-md hover:shadow-lg hover:scale-105 transition-all"
-                    >
-                      Save Changes
-                    </button>
-                  ) : context === 'practice' ? (
+                  {context === 'practice' ? (
                     <button 
                       onClick={async () => {
                         try {
@@ -330,6 +321,7 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
               </div>
             </div>
           </>
+          )
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">Card not found</div>
         )}

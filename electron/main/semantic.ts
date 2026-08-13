@@ -11,7 +11,18 @@ if (!fs.existsSync(modelCacheDir)) {
 }
 
 env.cacheDir = modelCacheDir;
-env.remoteHost = 'https://hf-mirror.com';
+
+let localModelPath = '';
+if (app.isPackaged) {
+  // Models are unpacked to app.asar.unpacked so that native C++ ONNX runtime can read them
+  localModelPath = path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), 'dist', 'models');
+} else {
+  localModelPath = path.join(app.getAppPath(), 'public', 'models');
+}
+
+env.allowLocalModels = true;
+env.localModelPath = localModelPath;
+env.allowRemoteModels = false;
 
 let extractor: any = null;
 let initPromise: Promise<any> | null = null;

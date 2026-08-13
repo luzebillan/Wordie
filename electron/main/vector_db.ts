@@ -51,6 +51,26 @@ export async function addCardVector(id: number, front: string, back: string, typ
   }
 }
 
+export async function addCardVectorsBatch(cardsData: { id: number, front: string, type: string, vector: number[] }[]) {
+  if (cardsData.length === 0) return;
+  try {
+    const db = await getDb();
+    const tableNames = await db.tableNames();
+
+    if (!tableNames.includes('cards')) {
+      tablePromise = db.createTable('cards', cardsData);
+      await tablePromise;
+    } else {
+      const table = await getVectorTable();
+      if (table) {
+        await table.add(cardsData);
+      }
+    }
+  } catch (e: any) {
+    console.error(`Failed to add vector batch:`, e.message || e);
+  }
+}
+
 export async function updateCardVector(id: number, front: string, back: string, type: string) {
   try {
     const table = await getVectorTable();

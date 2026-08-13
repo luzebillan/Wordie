@@ -38,6 +38,8 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
       setError('')
       setSimilarCards([])
       if (onUpdateStats) onUpdateStats()
+      window.dispatchEvent(new Event('stats-updated'))
+      window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Card saved successfully!' } }))
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
     }

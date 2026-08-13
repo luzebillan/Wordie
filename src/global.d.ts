@@ -3,7 +3,8 @@ interface Window {
     createCard: (card: any) => Promise<any>
     getCards: () => Promise<any[]>
     getCard: (id: number) => Promise<any>
-    deleteCard: (id: number) => Promise<{success: boolean}>
+    deleteCard: (id: number) => Promise<{success: boolean; error?: string}>
+    deleteCards: (ids: number[]) => Promise<{success: boolean; error?: string}>
     searchCards: (query: string, type?: string) => Promise<any[]>
     findSimilarCards: (front: string, back?: string, type?: string, useLLM?: boolean) => Promise<any[]>
     incrementUseCount: (id: number) => Promise<void>
@@ -12,7 +13,10 @@ interface Window {
     getDueCards: (randomize?: boolean) => Promise<any[]>
     getRandomCards: (limit?: number) => Promise<any[]>
     updateCardText: (id: number, front: string, back: string) => Promise<{ success: boolean; error?: string }>
-    reviewCard: (id: number, isCorrect: boolean) => Promise<{ success: boolean; logId?: number; error?: string }>
+    updateCard: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>
+    resetCardProgress: (id: number) => Promise<{ success: boolean; error?: string }>
+    resetCardsProgress: (ids: number[]) => Promise<{ success: boolean; error?: string }>
+    reviewCard: (id: number, isCorrect: boolean, rating?: 'again' | 'hard' | 'good' | 'easy' | 1 | 2 | 3 | 4, elapsedTime?: number) => Promise<{ success: boolean; logId?: number; error?: string }>
     getStats: () => Promise<any>
     getStatsByType: (type: string) => Promise<{ cardsReviewed: number; cardsToReview: number }>
     getRevisionStats: () => Promise<{ memorized: number; forgotten: number; toReview: number }>

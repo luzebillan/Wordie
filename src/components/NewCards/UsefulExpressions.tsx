@@ -65,7 +65,8 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
       setError('')
       setSimilarCards([])
       onUpdateStats?.()
-      // You could show a success toast here
+      window.dispatchEvent(new Event('stats-updated'))
+      window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Card saved successfully!' } }))
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
     }

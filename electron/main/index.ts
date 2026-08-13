@@ -85,7 +85,7 @@ async function createWindow() {
     y: bounds.y,
     minWidth: 1024,
     minHeight: 768,
-    icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
+    icon: path.join(process.env.VITE_PUBLIC, 'icon.png'),
     webPreferences: {
       preload,
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
@@ -195,6 +195,7 @@ ipcMain.handle('create-card', (_, card) => dbHandlers.createCard(card))
 ipcMain.handle('get-cards', () => dbHandlers.getCards())
 ipcMain.handle('get-card', (_, id) => dbHandlers.getCard(id))
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
+ipcMain.handle('delete-cards', (_, ids) => dbHandlers.deleteCards(ids))
 ipcMain.handle('search-cards', (_, { query, type }) => dbHandlers.searchCards(query, type))
 ipcMain.handle('find-similar-cards', (_, { front, back, type, useLLM }) => dbHandlers.findSimilarCards(front, back, type, useLLM))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
@@ -205,7 +206,10 @@ ipcMain.handle('get-due-cards', async (_, randomize = false) => {
 })
 ipcMain.handle('get-random-cards', (_, limit) => dbHandlers.getRandomCards(limit))
 ipcMain.handle('update-card-text', (_, { id, front, back }) => dbHandlers.updateCardText(id, front, back))
-ipcMain.handle('review-card', (_, { id, isCorrect }) => dbHandlers.reviewCard(id, isCorrect))
+ipcMain.handle('update-card', (_, { id, updates }) => dbHandlers.updateCard(id, updates))
+ipcMain.handle('reset-card-progress', (_, id) => dbHandlers.resetCardProgress(id))
+ipcMain.handle('reset-cards-progress', (_, ids) => dbHandlers.resetCardsProgress(ids))
+ipcMain.handle('review-card', (_, { id, isCorrect, rating, elapsedTime }) => dbHandlers.reviewCard(id, isCorrect, rating, elapsedTime))
 ipcMain.handle('get-stats-by-type', (_, type) => dbHandlers.getStatsByType(type))
 ipcMain.handle('get-revision-stats', () => dbHandlers.getRevisionStats())
 ipcMain.handle('undo-review', () => dbHandlers.undoReview())

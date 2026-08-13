@@ -28,6 +28,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [srsReward, setSrsReward] = useState('2.5')
   const [srsPenalty, setSrsPenalty] = useState('0.2')
   const [rewriteDivider, setRewriteDivider] = useState('20')
+  const [easyThreshold, setEasyThreshold] = useState('2')
+  const [goodThreshold, setGoodThreshold] = useState('30')
   
   // Prompts State
   const [promptGlossary, setPromptGlossary] = useState('')
@@ -45,7 +47,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // UI State
   const [isValidating, setIsValidating] = useState(false)
   const [isAiValidating, setIsAiValidating] = useState(false)
-  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
 
   // Update State
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready'>('idle')
@@ -119,6 +120,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (settings.srsReward) setSrsReward(settings.srsReward)
         if (settings.srsPenalty) setSrsPenalty(settings.srsPenalty)
         if (settings.rewriteDivider) setRewriteDivider(settings.rewriteDivider)
+        if (settings.easyThreshold) setEasyThreshold(settings.easyThreshold)
+        if (settings.goodThreshold) setGoodThreshold(settings.goodThreshold)
         setPromptGlossary(settings.promptGlossary || Prompts.DEFAULT_PROMPT_GLOSSARY)
         setPromptDailyWord(settings.promptDailyWord || Prompts.DEFAULT_PROMPT_DAILY_WORD)
         setPromptPracticeAi(settings.promptPracticeAi || Prompts.DEFAULT_PROMPT_PRACTICE_AI)
@@ -211,30 +214,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   }
 
   const handleImport = async () => {
-    const res = await window.ipcRenderer.importData()
-    if (res.canceled) return
-    if (res.success) {
-      showToast(`Imported ${res.imported} cards (${res.skipped} skipped)`, 'success')
-      window.dispatchEvent(new Event('settings-updated')) // To refresh data if needed
-    } else {
-      showToast(`Import failed: ${res.error}`, 'error')
+    try {
+      const res = await window.ipcRenderer.importData()
+      if (res.canceled) return
+      if (res.success) {
+        showToast(`Imported ${res.imported} cards (${res.skipped} skipped)`, 'success')
+        window.dispatchEvent(new Event('settings-updated')) // To refresh data if needed
+        window.dispatchEvent(new Event('stats-updated'))
+      } else {
+        showToast(`Import failed: ${res.error}`, 'error')
+      }
+    } catch (e: any) {
+      showToast(`Import error: ${e.message}`, 'error')
     }
   }
 
   const handleClear = async () => {
-    const res = await window.ipcRenderer.clearData()
-    if (res.canceled) return
-    if (res.success) {
-      showToast('Database cleared successfully', 'success')
-      window.dispatchEvent(new Event('settings-updated'))
-    } else {
-      showToast(`Failed to clear database: ${res.error}`, 'error')
+    try {
+      const res = await window.ipcRenderer.clearData()
+      if (res.canceled) return
+      if (res.success) {
+        showToast('Database cleared successfully', 'success')
+        window.dispatchEvent(new Event('settings-updated'))
+        window.dispatchEvent(new Event('stats-updated'))
+      } else {
+        showToast(`Failed to clear database: ${res.error}`, 'error')
+      }
+    } catch (e: any) {
+      showToast(`Clear error: ${e.message}`, 'error')
     }
   }
 
   const showToast = (message: string, type: 'success' | 'error') => {
-    setToast({ message, type })
-    setTimeout(() => setToast(null), 3000)
+    window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type } }))
   }
 
   if (!isOpen) return null
@@ -380,11 +392,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             ) : activeTab === 'about' ? (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300 h-full flex flex-col justify-center max-w-lg mx-auto">
                 <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold text-3xl mb-4 shadow-lg shadow-purple-500/30">
-                    C
-                  </div>
+                  <img src="/icon.png" alt="Wordie Logo" className="w-16 h-16 rounded-2xl mb-4 shadow-lg shadow-black/10 object-cover" />
                   <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1">
-                    CardsApp
+                    Wordie
                   </h3>
                   <div className="text-sm bg-gray-200 dark:bg-gray-800 px-3 py-1 rounded-full text-gray-600 dark:text-gray-300 mb-6 font-medium">
                     Version {appVersion !== 'Unknown' ? appVersion : '...'}
@@ -651,6 +661,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Easy Response Threshold (s)
+                          </label>
+                          <input
+                            type="text"
+                            value={easyThreshold}
+                            onChange={(e) => setEasyThreshold(e.target.value)}
+                            onBlur={() => autoSave('easyThreshold', easyThreshold)}
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
+                          />
+                          <p className="text-[11px] text-gray-400 mt-1">If response is under this (seconds), rates as Easy.</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Good Response Threshold (s)
+                          </label>
+                          <input
+                            type="text"
+                            value={goodThreshold}
+                            onChange={(e) => setGoodThreshold(e.target.value)}
+                            onBlur={() => autoSave('goodThreshold', goodThreshold)}
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
+                          />
+                          <p className="text-[11px] text-gray-400 mt-1">If response is under this (seconds), rates as Good. Above rates Hard.</p>
+                        </div>
+                      </div>
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Rewrite Expression Divider
@@ -700,14 +739,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
         {/* Footer removed per user requirement: no Cancel/Save buttons */}
 
-        {/* Toast Notification */}
-        {toast && (
-          <div className={`absolute bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-full shadow-lg text-sm font-medium animate-in slide-in-from-bottom-2 ${
-            toast.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/80 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-900/80 dark:text-red-100'
-          }`}>
-            {toast.message}
-          </div>
-        )}
       </div>
     </div>
   )
