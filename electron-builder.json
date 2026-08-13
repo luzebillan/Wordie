@@ -19,6 +19,13 @@
       "zip"
     ]
   },
+  "linux": {
+    "target": [
+      "AppImage",
+      "tar.gz"
+    ],
+    "artifactName": "${productName}_${version}.${ext}"
+  },
   "win": {
     "target": [
       {
