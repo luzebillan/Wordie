@@ -32,7 +32,7 @@ jobs:
 
       # ref: https://github.com/github/docs/blob/main/.github/workflows/triage-unallowed-contributions.yml
       - name: Comment About Changes We Can't Accept
-        if: ${{ steps.changes.outputs.lockfiles == 'true' }}
+        if: ${{ steps.changes.outputs.lockfiles == 'true' && github.actor != 'dependabot[bot]' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -57,7 +57,7 @@ jobs:
             }
 
       - name: Fail on Restricted Lockfile Changes
-        if: ${{ steps.changes.outputs.lockfiles == 'true' }}
+        if: ${{ steps.changes.outputs.lockfiles == 'true' && github.actor != 'dependabot[bot]' }}
         run: |
           echo "Lockfiles are managed by maintainers and should not be changed in PRs."
           echo "Changed lockfiles:"
