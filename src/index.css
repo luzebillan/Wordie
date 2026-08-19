@@ -3,6 +3,14 @@
 @custom-variant dark (&:where(.dark, .dark *));
 @custom-variant monochrome (&:where(.monochrome, .monochrome *));
 
+@font-face {
+  font-family: 'Forte';
+  src: url('./assets/fonts/FORTE.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;

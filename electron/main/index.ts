@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, protocol, net, dialog } from 'electron'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -8,6 +8,19 @@ import { update } from './update'
 import { dbHandlers, initDB } from './db'
 import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion, aiRewritePractice, practicePureListener, practiceRewrite, practiceAiVersion } from './ai'
 import { downloadImage, uploadLocalImage, getImagesDir } from './imageCache'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-asset',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true,
+    },
+  },
+])
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -156,10 +169,13 @@ async function createWindow() {
 app.whenReady().then(() => {
   // Register custom protocol for loading local images safely
   protocol.handle('local-asset', (request) => {
-    // URL format: local-asset://<filename>
-    const url = request.url.replace('local-asset://', '')
-    const filePath = path.join(getImagesDir(), decodeURIComponent(url))
-    return net.fetch('file://' + filePath)
+    // URL format: local-asset://<filename> or local-asset:///<filename>
+    const cleanUrl = request.url.replace(/^local-asset:\/\//, '').replace(/^\/+/, '')
+    const filePath = path.join(getImagesDir(), decodeURIComponent(cleanUrl))
+    if (!fs.existsSync(filePath)) {
+      return new Response('Image not found', { status: 404 })
+    }
+    return net.fetch(pathToFileURL(filePath).toString())
   })
 
   createWindow()

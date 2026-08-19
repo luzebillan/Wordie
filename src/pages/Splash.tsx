@@ -74,7 +74,7 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
       
       <div className="flex flex-col items-center">
         <div className="flex flex-col items-center">
-          <h1 className="text-6xl font-cursive bg-gradient-to-r from-purple-600 to-indigo-500 monochrome:from-gray-800 monochrome:to-black dark:monochrome:from-gray-300 dark:monochrome:to-white bg-clip-text text-transparent mb-0 tracking-tight" style={{ fontFamily: "'Dancing Script', cursive" }}>
+          <h1 className="text-6xl bg-gradient-to-r from-purple-600 to-indigo-500 monochrome:from-gray-800 monochrome:to-black dark:monochrome:from-gray-300 dark:monochrome:to-white bg-clip-text text-transparent mb-0 tracking-tight" style={{ fontFamily: "'Forte', cursive, sans-serif" }}>
             Welcome
           </h1>
           <p className="text-sm font-medium text-gray-400 dark:text-gray-500 mt-3">

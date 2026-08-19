@@ -1,9 +1,18 @@
 import { db } from './connection'
 import { clearVectorTable, addCardVector } from '../vector_db'
+import { initSettings } from '../config'
 
 export function initDB() {
   const versionInfo = db.prepare('PRAGMA user_version').get() as { user_version: number };
   let currentVersion = versionInfo.user_version;
+
+  // Always ensure internal metadata table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS db_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
 
   if (currentVersion === 0) {
     // Check if it's an existing legacy DB
@@ -80,14 +89,6 @@ export function initDB() {
       `);
     }
 
-    // Common V1 Setup
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      )
-    `);
-
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
         front, back, label,
@@ -118,6 +119,9 @@ export function initDB() {
     currentVersion = 1;
   }
 
+  // Initialize config manager (and migrate legacy settings from SQLite if needed)
+  initSettings(db);
+
   // Future migrations can go here:
   // if (currentVersion === 1) { ... db.pragma('user_version = 2'); currentVersion = 2; }
 
@@ -126,8 +130,16 @@ export function initDB() {
 }
 
 async function migrateVectors() {
-  const settingsRow = db.prepare(`SELECT value FROM settings WHERE key = 'semantic_model_version'`).get() as any;
-  const version = settingsRow?.value;
+  let version: string | undefined;
+  try {
+    const metaRow = db.prepare(`SELECT value FROM db_meta WHERE key = 'semantic_model_version'`).get() as any;
+    version = metaRow?.value;
+  } catch {
+    try {
+      const settingsRow = db.prepare(`SELECT value FROM settings WHERE key = 'semantic_model_version'`).get() as any;
+      version = settingsRow?.value;
+    } catch {}
+  }
   
   if (version !== 'minilm_v1') {
     console.log("Migrating vector database to new model: Xenova/all-MiniLM-L6-v2");
@@ -140,7 +152,7 @@ async function migrateVectors() {
       }
     }
     
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('semantic_model_version', 'minilm_v1')`).run();
+    db.prepare(`INSERT OR REPLACE INTO db_meta (key, value) VALUES ('semantic_model_version', 'minilm_v1')`).run();
     console.log("Migration complete.");
   }
 }

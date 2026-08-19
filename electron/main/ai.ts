@@ -5,7 +5,6 @@ import { getImagesDir } from './imageCache'
 import { 
   DEFAULT_PROMPT_GLOSSARY,
   DEFAULT_PROMPT_DAILY_WORD,
-  DEFAULT_PROMPT_PRACTICE_AI,
   DEFAULT_PROMPT_REWRITE,
   DEFAULT_PROMPT_EXPRESSION,
   DEFAULT_PROMPT_REVISION_CLOZE,
@@ -149,13 +148,6 @@ export async function aiGenerateDailyWord(
   } catch (err: any) {
     return { success: false, error: err.message || 'Network error occurred.' }
   }
-}
-
-export async function aiPracticeAIVersion(text: string, settings: any) {
-  const template = settings['promptPracticeAi'] || DEFAULT_PROMPT_PRACTICE_AI
-  const prompt = template.replace('{{text}}', text)
-  
-  return callAiApi(prompt, settings)
 }
 
 export async function aiRewritePractice(text: string, targetWords: string[], settings: any) {

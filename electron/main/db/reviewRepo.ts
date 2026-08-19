@@ -1,12 +1,21 @@
 import { db } from './connection'
 import { calculateAnkiReview } from '../../../src/utils/ankiSrs'
 
+function getLogicalDayStart(now = new Date()): Date {
+  const d = new Date(now)
+  if (d.getHours() < 3) {
+    d.setDate(d.getDate() - 1)
+  }
+  d.setHours(3, 0, 0, 0)
+  return d
+}
+
 export const reviewRepo = {
   getDueCards: (randomize: boolean = false) => {
     // 3:00 AM day boundary is naturally handled because nextReviewDate has exact times.
     const now = new Date().toISOString()
     const orderClause = randomize ? 'RANDOM()' : 'nextReviewDate ASC, id ASC'
-    const stmt = db.prepare(`SELECT * FROM cards WHERE nextReviewDate IS NULL OR nextReviewDate <= ? ORDER BY ${orderClause} LIMIT 50`)
+    const stmt = db.prepare(`SELECT * FROM cards WHERE nextReviewDate IS NULL OR datetime(nextReviewDate) <= datetime(?) ORDER BY ${orderClause}`)
     return stmt.all(now)
   },
 
@@ -100,44 +109,35 @@ export const reviewRepo = {
     updateStmt.run(outcome.progress.repetitions, outcome.progress.interval, outcome.progress.easeFactor, outcome.progress.state, outcome.progress.lapses, nextReviewIso, encounterIncrement, id)
 
     // Check if reviewed today (in logical day)
-    let logicalDayStart = new Date(now)
-    if (logicalDayStart.getHours() < 3) {
-      logicalDayStart.setDate(logicalDayStart.getDate() - 1)
-    }
-    logicalDayStart.setHours(3, 0, 0, 0)
+    const logicalDayStart = getLogicalDayStart(now)
     
-    const checkLogStmt = db.prepare(`SELECT COUNT(*) as count FROM review_logs WHERE cardId = ? AND reviewDate >= ?`)
+    const checkLogStmt = db.prepare(`SELECT COUNT(*) as count FROM review_logs WHERE cardId = ? AND datetime(reviewDate) >= datetime(?)`)
     const logCheck = checkLogStmt.get(id, logicalDayStart.toISOString()) as any
     const isFirstTry = logCheck.count === 0
 
     const ratingStr = typeof rating === 'number' ? ['again','hard','good','easy'][rating-1] : (rating || (isCorrect ? 'good' : 'again'));
 
     const logStmt = db.prepare(`
-      INSERT INTO review_logs (cardId, isCorrect, rating, elapsedTime, isFirstTry, previousState)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO review_logs (cardId, isCorrect, rating, elapsedTime, isFirstTry, previousState, reviewDate)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
-    const logResult = logStmt.run(id, isCorrect ? 1 : 0, ratingStr, elapsedTime || null, isFirstTry ? 1 : 0, previousState)
+    const logResult = logStmt.run(id, isCorrect ? 1 : 0, ratingStr, elapsedTime || null, isFirstTry ? 1 : 0, previousState, now.toISOString())
 
     return { success: true, logId: logResult.lastInsertRowid }
   },
 
   getRevisionStats: () => {
     const now = new Date()
-    let logicalDayStart = new Date(now)
-    if (logicalDayStart.getHours() < 3) {
-      logicalDayStart.setDate(logicalDayStart.getDate() - 1)
-    }
-    logicalDayStart.setHours(3, 0, 0, 0)
+    const logicalDayStart = getLogicalDayStart(now)
     const logicalDayStartStr = logicalDayStart.toISOString()
-    
     const nowIso = now.toISOString()
     
     const toReviewStmt = db.prepare(`
       SELECT COUNT(*) as count 
       FROM cards c
-      WHERE (c.nextReviewDate IS NULL OR c.nextReviewDate <= ?)
+      WHERE (c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?))
       AND c.id NOT IN (
-        SELECT cardId FROM review_logs WHERE reviewDate >= ?
+        SELECT cardId FROM review_logs WHERE datetime(reviewDate) >= datetime(?)
       )
     `)
     const toReview = (toReviewStmt.get(nowIso, logicalDayStartStr) as any).count
@@ -146,7 +146,7 @@ export const reviewRepo = {
       SELECT COUNT(DISTINCT c.id) as count
       FROM cards c
       JOIN review_logs r ON c.id = r.cardId
-      WHERE r.reviewDate >= ? AND c.nextReviewDate > ?
+      WHERE datetime(r.reviewDate) >= datetime(?) AND datetime(c.nextReviewDate) > datetime(?)
     `)
     const memorized = (memorizedStmt.get(logicalDayStartStr, nowIso) as any).count
     
@@ -154,7 +154,7 @@ export const reviewRepo = {
       SELECT COUNT(DISTINCT c.id) as count
       FROM cards c
       JOIN review_logs r ON c.id = r.cardId
-      WHERE r.reviewDate >= ? AND (c.nextReviewDate IS NULL OR c.nextReviewDate <= ?)
+      WHERE datetime(r.reviewDate) >= datetime(?) AND (c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?))
     `)
     const forgotten = (forgottenStmt.get(logicalDayStartStr, nowIso) as any).count
     
@@ -182,20 +182,30 @@ export const reviewRepo = {
   },
   
   getStats: () => {
-    const today = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const logicalDayStart = getLogicalDayStart(now)
+    const logicalDayStartStr = logicalDayStart.toISOString()
+    const nowIso = now.toISOString()
     
-    // Cards Reviewed Today
-    const reviewedCountStmt = db.prepare(`SELECT COUNT(DISTINCT cardId) as count FROM review_logs WHERE date(reviewDate) = ?`)
-    const reviewedCount = (reviewedCountStmt.get(today) as any).count
+    // Cards Reviewed Today (distinct cards reviewed in logical day)
+    const reviewedCountStmt = db.prepare(`SELECT COUNT(DISTINCT cardId) as count FROM review_logs WHERE datetime(reviewDate) >= datetime(?)`)
+    const reviewedCount = (reviewedCountStmt.get(logicalDayStartStr) as any).count
     
-    // Retention Rate Today
-    const firstTriesStmt = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) as correct FROM review_logs WHERE date(reviewDate) = ? AND isFirstTry = 1`)
-    const firstTriesData = firstTriesStmt.get(today) as any
+    // Retention Rate Today (first tries in logical day)
+    const firstTriesStmt = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) as correct FROM review_logs WHERE datetime(reviewDate) >= datetime(?) AND isFirstTry = 1`)
+    const firstTriesData = firstTriesStmt.get(logicalDayStartStr) as any
     const retentionRate = firstTriesData.total > 0 ? (firstTriesData.correct / firstTriesData.total) * 100 : 0
     
-    // Cards To Review Today
-    const toReviewStmt = db.prepare(`SELECT COUNT(*) as count FROM cards WHERE nextReviewDate IS NULL OR date(nextReviewDate) <= ?`)
-    const toReviewCount = (toReviewStmt.get(today) as any).count
+    // Cards To Review Today (due today and NEVER reviewed even once today)
+    const toReviewStmt = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM cards c
+      WHERE (c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?))
+      AND c.id NOT IN (
+        SELECT cardId FROM review_logs WHERE datetime(reviewDate) >= datetime(?)
+      )
+    `)
+    const toReviewCount = (toReviewStmt.get(nowIso, logicalDayStartStr) as any).count
     
     return {
       cardsReviewed: reviewedCount,
@@ -205,24 +215,31 @@ export const reviewRepo = {
   },
 
   getStatsByType: (type: string) => {
-    const today = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const logicalDayStart = getLogicalDayStart(now)
+    const logicalDayStartStr = logicalDayStart.toISOString()
+    const nowIso = now.toISOString()
     
-    // Cards Reviewed Today
+    // Cards Reviewed Today of this type
     const reviewedCountStmt = db.prepare(`
       SELECT COUNT(DISTINCT r.cardId) as count 
       FROM review_logs r 
       JOIN cards c ON r.cardId = c.id 
-      WHERE date(r.reviewDate) = ? AND c.type = ?
+      WHERE datetime(r.reviewDate) >= datetime(?) AND c.type = ?
     `)
-    const reviewedCount = (reviewedCountStmt.get(today, type) as any).count
+    const reviewedCount = (reviewedCountStmt.get(logicalDayStartStr, type) as any).count
     
-    // Cards To Review Today
+    // Cards To Review Today of this type (due today and NEVER reviewed even once today)
     const toReviewStmt = db.prepare(`
       SELECT COUNT(*) as count 
-      FROM cards 
-      WHERE type = ? AND (nextReviewDate IS NULL OR date(nextReviewDate) <= ?)
+      FROM cards c 
+      WHERE c.type = ? 
+      AND (c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?))
+      AND c.id NOT IN (
+        SELECT cardId FROM review_logs WHERE datetime(reviewDate) >= datetime(?)
+      )
     `)
-    const toReviewCount = (toReviewStmt.get(type, today) as any).count
+    const toReviewCount = (toReviewStmt.get(type, nowIso, logicalDayStartStr) as any).count
     
     return {
       cardsReviewed: reviewedCount,
@@ -230,3 +247,4 @@ export const reviewRepo = {
     }
   }
 }
+

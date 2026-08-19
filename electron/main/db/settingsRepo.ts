@@ -1,27 +1,11 @@
 import { db } from './connection'
 import { clearVectorTable, addCardVectorsBatch } from '../vector_db'
 import { getEmbedding } from '../semantic'
+import { getSettings, saveSettings } from '../config'
 
 export const settingsRepo = {
-  getSettings: () => {
-    const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string, value: string }[]
-    const settings: Record<string, string> = {}
-    rows.forEach(row => {
-      settings[row.key] = row.value
-    })
-    return settings
-  },
-  
-  saveSettings: (settings: Record<string, string>) => {
-    const insert = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (@key, @value)')
-    const transaction = db.transaction((settingsObj) => {
-      for (const [key, value] of Object.entries(settingsObj)) {
-        insert.run({ key, value: String(value) })
-      }
-    })
-    transaction(settings)
-    return { success: true }
-  },
+  getSettings,
+  saveSettings,
 
   clearDatabase: async () => {
     try {

@@ -46,7 +46,7 @@
   "publish": {
     "provider": "github",
     "owner": "luzebillan",
-    "repo": "wordie",
+    "repo": "Wordie",
     "releaseType": "release"
   }
 }

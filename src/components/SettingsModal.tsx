@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import * as Prompts from '../constants/prompts'
+import wordieLogo from '../assets/icon.png'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -34,7 +35,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // Prompts State
   const [promptGlossary, setPromptGlossary] = useState('')
   const [promptDailyWord, setPromptDailyWord] = useState('')
-  const [promptPracticeAi, setPromptPracticeAi] = useState('')
   const [promptRewrite, setPromptRewrite] = useState('')
   const [promptExpression, setPromptExpression] = useState('')
   const [promptRevisionCloze, setPromptRevisionCloze] = useState('')
@@ -124,7 +124,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (settings.goodThreshold) setGoodThreshold(settings.goodThreshold)
         setPromptGlossary(settings.promptGlossary || Prompts.DEFAULT_PROMPT_GLOSSARY)
         setPromptDailyWord(settings.promptDailyWord || Prompts.DEFAULT_PROMPT_DAILY_WORD)
-        setPromptPracticeAi(settings.promptPracticeAi || Prompts.DEFAULT_PROMPT_PRACTICE_AI)
         setPromptRewrite(settings.promptRewrite || Prompts.DEFAULT_PROMPT_REWRITE)
         setPromptExpression(settings.promptExpression || Prompts.DEFAULT_PROMPT_EXPRESSION)
         setPromptRevisionCloze(settings.promptRevisionCloze || Prompts.DEFAULT_PROMPT_REVISION_CLOZE)
@@ -392,7 +391,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             ) : activeTab === 'about' ? (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300 h-full flex flex-col justify-center max-w-lg mx-auto">
                 <div className="flex flex-col items-center justify-center p-8 rounded-2xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
-                  <img src="/icon.png" alt="Wordie Logo" className="w-16 h-16 rounded-2xl mb-4 shadow-lg shadow-black/10 object-cover" />
+                  <img src={wordieLogo} alt="Wordie Logo" className="w-16 h-16 rounded-2xl mb-4 shadow-lg shadow-black/10 object-cover" />
                   <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1">
                     Wordie
                   </h3>
@@ -728,8 +727,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     {renderPromptField('Pure Listener', promptPureListener, setPromptPureListener, 'promptPureListener', 'Evaluates overall logic. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_PURE_LISTENER)}
                     {renderPromptField('Rewrite Extraction', promptPracticeExtract, setPromptPracticeExtract, 'promptPracticeExtract', 'Extracts target phrases for optimization. Placeholders: {{targetCount}}, {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_EXTRACT)}
                     {renderPromptField('Rewrite Output', promptPracticeRewrite, setPromptPracticeRewrite, 'promptPracticeRewrite', 'Rewrites text integrating vocabulary. Placeholders: {{cardsContext}}, {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_REWRITE)}
-                    {renderPromptField('AI Target Version', promptPracticeAi, setPromptPracticeAi, 'promptPracticeAi', 'Generates ideal interpreter delivery. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_AI)}
-                    {renderPromptField('Elite Upgrade', promptAiVersion, setPromptAiVersion, 'promptAiVersion', 'Upgrades English to elite level. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_AI_VERSION)}
+                    {renderPromptField('AI Version', promptAiVersion, setPromptAiVersion, 'promptAiVersion', 'Generates flawless, concise, and idiomatic interpretation in the same language. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_AI_VERSION)}
                     {renderPromptField('Vocabulary Fusion', promptRewrite, setPromptRewrite, 'promptRewrite', 'Rephrases text using specific vocab. Placeholders: {{dbText}}, {{text}}', Prompts.DEFAULT_PROMPT_REWRITE)}
                   </div>
                 </div>

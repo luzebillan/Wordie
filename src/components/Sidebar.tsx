@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { FileText, FolderClock, PenTool, Search, Settings, Library } from 'lucide-react'
+import wordieLogo from '../assets/icon.png'
 
 interface Stats {
   cardsReviewed: number
@@ -97,7 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
     <div className="w-72 shrink-0 h-full bg-white/50 dark:bg-black/20 border-r border-gray-200 dark:border-gray-800 flex flex-col pt-12 pb-6 px-5 backdrop-blur-md">
       {/* Brand */}
       <div className="flex items-center gap-3 mb-8 px-1">
-        <img src="/icon.png" alt="Wordie Logo" className="w-8 h-8 rounded-lg shrink-0 object-cover shadow-sm" />
+        <img src={wordieLogo} alt="Wordie Logo" className="w-8 h-8 rounded-lg shrink-0 object-cover shadow-sm" />
         <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-800 to-gray-600 dark:from-white dark:to-gray-300 truncate">
           Wordie
         </span>

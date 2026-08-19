@@ -52,7 +52,6 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
       }
       if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
-        if (isEditingMode) handleSaveEdit()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
