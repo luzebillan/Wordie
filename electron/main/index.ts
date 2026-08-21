@@ -6,7 +6,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import { update } from './update'
 import { dbHandlers, initDB } from './db'
-import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion, aiRewritePractice, practicePureListener, practiceRewrite, practiceAiVersion } from './ai'
+import { aiGenerateExpression, aiGenerateGlossary, aiGenerateDailyWord, aiGenerateReadyVersion, aiRewritePractice, practicePureListener, practiceRewrite, practiceAiVersion, generateRevisionCloze } from './ai'
 import { downloadImage, uploadLocalImage, getImagesDir } from './imageCache'
 
 protocol.registerSchemesAsPrivileged([
@@ -169,13 +169,33 @@ async function createWindow() {
 app.whenReady().then(() => {
   // Register custom protocol for loading local images safely
   protocol.handle('local-asset', (request) => {
-    // URL format: local-asset://<filename> or local-asset:///<filename>
-    const cleanUrl = request.url.replace(/^local-asset:\/\//, '').replace(/^\/+/, '')
-    const filePath = path.join(getImagesDir(), decodeURIComponent(cleanUrl))
-    if (!fs.existsSync(filePath)) {
-      return new Response('Image not found', { status: 404 })
+    try {
+      const parsedUrl = new URL(request.url)
+      let relativePath = parsedUrl.pathname
+      if (parsedUrl.hostname && parsedUrl.hostname !== 'localhost' && parsedUrl.hostname !== 'asset') {
+        relativePath = parsedUrl.hostname + parsedUrl.pathname
+      }
+      relativePath = relativePath.replace(/^\/+/, '').replace(/\/+$/, '')
+      const decodedPath = decodeURIComponent(relativePath)
+
+      const imagesDir = getImagesDir()
+      const filePath = path.join(imagesDir, decodedPath)
+      const normalizedPath = path.normalize(filePath)
+      const normalizedDir = path.normalize(imagesDir)
+
+      if (!normalizedPath.startsWith(normalizedDir)) {
+        return new Response('Access denied', { status: 403 })
+      }
+
+      if (!fs.existsSync(normalizedPath) || fs.statSync(normalizedPath).isDirectory()) {
+        return new Response('Image not found', { status: 404 })
+      }
+
+      return net.fetch(pathToFileURL(normalizedPath).toString())
+    } catch (err: any) {
+      console.error('Error in local-asset protocol handler:', err)
+      return new Response('Internal Server Error', { status: 500 })
     }
-    return net.fetch(pathToFileURL(filePath).toString())
   })
 
   createWindow()
@@ -213,7 +233,7 @@ ipcMain.handle('get-card', (_, id) => dbHandlers.getCard(id))
 ipcMain.handle('delete-card', (_, id) => dbHandlers.deleteCard(id))
 ipcMain.handle('delete-cards', (_, ids) => dbHandlers.deleteCards(ids))
 ipcMain.handle('search-cards', (_, { query, type }) => dbHandlers.searchCards(query, type))
-ipcMain.handle('find-similar-cards', (_, { front, back, type, useLLM }) => dbHandlers.findSimilarCards(front, back, type, useLLM))
+ipcMain.handle('find-similar-cards', (_, { front, back, type, useLLM, context }) => dbHandlers.findSimilarCards(front, back, type, useLLM, context))
 ipcMain.handle('increment-use-count', (_, id) => dbHandlers.incrementUseCount(id))
 ipcMain.handle('increment-encounter-count', (_, id) => dbHandlers.incrementEncounterCount(id))
 ipcMain.handle('increment-manual-review-count', (_, id) => dbHandlers.incrementManualReviewCount(id))
@@ -313,7 +333,6 @@ ipcMain.handle('generate-ready-version', async (_, { front }) => {
 
 ipcMain.handle('generate-revision-cloze', async (_, { front, back }) => {
   const settings = dbHandlers.getSettings()
-  const { generateRevisionCloze } = await import('./ai')
   return await generateRevisionCloze(front, back, settings)
 })
 

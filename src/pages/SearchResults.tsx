@@ -52,8 +52,25 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
               >
                 <div className="flex justify-between items-start mb-2 gap-4">
                   <div className="text-lg font-bold text-gray-900 dark:text-gray-100 line-clamp-2 break-words">{card.front}</div>
-                  <div className="text-[10px] px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded uppercase tracking-wider font-bold shrink-0">
-                    {card.type}
+                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                    <div className="text-[10px] px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded uppercase tracking-wider font-bold shrink-0">
+                      {card.type}
+                    </div>
+                    {card.type === 'Useful Expressions' && (
+                      <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider">
+                        {card.style || 'General'}
+                      </div>
+                    )}
+                    {card.type === 'Glossary' && card.label && (
+                      <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider max-w-[120px] truncate" title={card.label}>
+                        {card.label}
+                      </div>
+                    )}
+                    {card.type === 'Ready Versions' && card.label && (
+                      <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider">
+                        {card.label}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-3 break-words">{card.back}</div>

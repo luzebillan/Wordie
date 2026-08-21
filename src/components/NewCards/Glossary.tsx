@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Save, X } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 import { DOMAINS, getStoredDomainFields } from '../../constants/domains'
+import { useSimilarCards } from '../../hooks/useSimilarCards'
+import { useShortcuts } from '../../hooks/useShortcuts'
 
 interface GlossaryProps {
   onNavigate?: (view: string, props?: any) => void;
   onUpdateStats?: () => void;
 }
 
-
-
 export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
+  const containerRef = useRef<HTMLDivElement>(null)
   const [domainFields, setDomainFields] = useState<Record<string, string[]>>(getStoredDomainFields())
   const [selectedDomain, setSelectedDomain] = useState(DOMAINS[0])
   const [newFieldInput, setNewFieldInput] = useState('')
@@ -20,10 +22,20 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
-  const [similarCards, setSimilarCards] = useState<any[]>([])
-  const [toastMessage, setToastMessage] = useState('')
 
   const [confirmDeleteField, setConfirmDeleteField] = useState<string | null>(null)
+
+  const {
+    mode,
+    similarCards,
+    isSearching,
+    isAnalyzing,
+    toastMessage,
+    setSearchQuery,
+    triggerSemanticSearch,
+    handleIncrementReviewCount,
+    reset
+  } = useSimilarCards({ cardType: 'Glossary' })
 
   useEffect(() => {
     localStorage.setItem('glossaryDomainFields', JSON.stringify(domainFields))
@@ -84,18 +96,19 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
     try {
       const res = await window.ipcRenderer.generateGlossary(labels, front)
       if (res.success && res.result) {
+        let finalFront = front
         let finalBack = res.result
         try {
           const parsed = JSON.parse(res.result)
           setFront(parsed.front)
           setBack(parsed.back)
+          finalFront = parsed.front
           finalBack = parsed.back
         } catch {
           // Fallback if somehow it's not the exact JSON structure string we returned
           setBack(res.result)
         }
-        const updated = await window.ipcRenderer.findSimilarCards(front, finalBack, 'Glossary', true)
-        setSimilarCards(updated)
+        await triggerSemanticSearch(finalFront, finalBack, 'Glossary')
       } else {
         setError(res.error || 'Failed to generate glossary explanation.')
       }
@@ -131,7 +144,8 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
       setLabels([])
       setNewFieldInput('')
       setError('')
-      setSimilarCards([])
+      reset()
+      
       if (onUpdateStats) onUpdateStats()
       window.dispatchEvent(new Event('stats-updated'))
       window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Card saved successfully!' } }))
@@ -140,22 +154,26 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
     }
   }
 
-  const handleIncrementManualReviewCount = async (id: number) => {
-    try {
-      await window.ipcRenderer.incrementManualReviewCount(id)
-      const updated = await window.ipcRenderer.findSimilarCards(front.trim(), back.trim())
-      setSimilarCards(updated)
-      if (onUpdateStats) onUpdateStats()
-      
-      setToastMessage('+1 Added successfully!')
-      setTimeout(() => setToastMessage(''), 3000)
-    } catch (err: any) {
-      console.error(err)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!containerRef.current || containerRef.current.offsetParent === null) return
+      if (isActionPressed('card.submit', e)) {
+        e.preventDefault()
+        if (isGenerating) return
+        if (!back.trim()) {
+          handleGenerate()
+        } else {
+          handleSave()
+        }
+      }
     }
-  }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [front, back, labels, isGenerating, isActionPressed])
 
   return (
-    <div className="flex h-full animate-in fade-in duration-500" onClick={() => setConfirmDeleteField(null)}>
+    <div ref={containerRef} className="flex h-full animate-in fade-in duration-500" onClick={() => setConfirmDeleteField(null)}>
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
         
@@ -261,11 +279,12 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
           <textarea
             value={front}
             onChange={e => {
-              setFront(e.target.value)
-              setSimilarCards([])
+              const val = e.target.value
+              setFront(val)
+              setSearchQuery(val)
             }}
             className="w-full p-4 h-24 resize-none bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="e.g. LLM"
+            placeholder="Enter Term (Chinese or English)"
           />
         </div>
 
@@ -282,19 +301,17 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
                 <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
               </svg>
               {isGenerating ? 'Generating...' : 'Create Glossary'}
+              {!back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>}
             </button>
             {error && <span className="text-red-500 text-sm">{error}</span>}
           </div>
           
           <textarea
             value={back}
-            onChange={e => {
-              setBack(e.target.value)
-              setSimilarCards([])
-            }}
+            onChange={e => setBack(e.target.value)}
             disabled={isGenerating}
             className={`w-full h-56 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
-            placeholder="AI-Generated Glossary Content Here"
+            placeholder="AI Bilingual Explanation (Editable)"
           />
         </div>
 
@@ -306,19 +323,22 @@ export const Glossary: React.FC<GlossaryProps> = ({ onNavigate, onUpdateStats })
           >
             <Save className="w-4 h-4" />
             Save
+            {back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>}
           </button>
         </div>
       </div>
 
-      {/* Right Panel: Duplicate Checker */}
+      {/* Right Panel: Duplicate Checker & Similar Terms */}
       <FuzzyMatchList 
         similarCards={similarCards}
-        emptyMessage="No Similar Terms Found"
-        onIncrement={handleIncrementManualReviewCount}
+        mode={mode}
+        isSearching={isSearching}
+        isAnalyzing={isAnalyzing}
+        emptyMessage={front.trim() ? "No Matching Terms Found" : "Start typing to search existing terms..."}
+        onIncrement={handleIncrementReviewCount}
         onNavigate={onNavigate}
         toastMessage={toastMessage}
       />
     </div>
   )
 }
-

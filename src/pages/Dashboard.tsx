@@ -10,8 +10,10 @@ import { Practice } from './Practice'
 import { SearchResults } from './SearchResults'
 import { Library } from './Library'
 import { CardPreviewModal } from '../components/CardPreviewModal'
+import { useShortcuts } from '../hooks/useShortcuts'
 
 export const Dashboard: React.FC = () => {
+  const { isActionPressed } = useShortcuts()
   const [currentView, setCurrentView] = useState('new-cards')
   const [viewProps, setViewProps] = useState<any>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -87,6 +89,36 @@ export const Dashboard: React.FC = () => {
     return () => window.removeEventListener('preview-card', handlePreview)
   }, [])
 
+  React.useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if a modal like Settings or CardPreview is open, except settings shortcut or modal.close
+      const isModalOpen = !!document.querySelector('.fixed.z-\\[100\\], .fixed.z-\\[101\\], [role="dialog"]')
+      
+      if (isActionPressed('nav.newCards', e)) {
+        e.preventDefault()
+        handleNavigate('new-cards')
+      } else if (isActionPressed('nav.revision', e)) {
+        e.preventDefault()
+        handleNavigate('revision')
+      } else if (isActionPressed('nav.practice', e)) {
+        e.preventDefault()
+        handleNavigate('practice')
+      } else if (isActionPressed('nav.library', e)) {
+        e.preventDefault()
+        handleNavigate('library')
+      } else if (isActionPressed('nav.search', e)) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('focus-search'))
+      } else if (isActionPressed('nav.settings', e)) {
+        e.preventDefault()
+        setIsSettingsOpen(prev => !prev)
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [isActionPressed])
+
   return (
     <div className="flex h-screen w-full bg-gray-50 dark:bg-[#111216] overflow-hidden text-left">
       {/* Sidebar with Stats and Nav */}
@@ -150,13 +182,13 @@ export const Dashboard: React.FC = () => {
                 <UsefulExpressions onNavigate={handleNavigate} onUpdateStats={fetchStats} />
               </div>
               <div style={{ display: newCardsTab === 'Glossary' ? 'block' : 'none', height: '100%' }}>
-                <Glossary onNavigate={handleNavigate} />
+                <Glossary onNavigate={handleNavigate} onUpdateStats={fetchStats} />
               </div>
               <div style={{ display: newCardsTab === 'Daily Words' ? 'block' : 'none', height: '100%' }}>
-                <DailyWords onNavigate={handleNavigate} />
+                <DailyWords onNavigate={handleNavigate} onUpdateStats={fetchStats} />
               </div>
               <div style={{ display: newCardsTab === 'Ready Versions' ? 'block' : 'none', height: '100%' }}>
-                <ReadyVersions onNavigate={handleNavigate} />
+                <ReadyVersions onNavigate={handleNavigate} onUpdateStats={fetchStats} />
               </div>
             </div>
           </div>

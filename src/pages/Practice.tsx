@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { NewCardModal } from '../components/NewCardModal'
+import { useShortcuts } from '../hooks/useShortcuts'
 
 export const Practice: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'pure_listener' | 'rewrite' | 'ai_version'>('pure_listener')
@@ -250,8 +251,8 @@ const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) =
               {renderHighlighted()}
             </div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-gray-300 dark:text-gray-600 text-sm p-8 text-center">
-              This is a revised version of the text given by the user, where multiple expressions that the user noted down should be used. For example, when <span className="text-yellow-500 mx-1">expression 1</span> is used to refine the text, it should be highlighted, and the user and click it to drive up a pop-up window.
+            <div className="h-full flex items-center justify-center text-gray-300 dark:text-gray-600 text-sm">
+              Rewrite: Using Learned Phrases
             </div>
           )}
         </div>
@@ -261,20 +262,21 @@ const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) =
 }
 
 const AiVersion: React.FC<{ onComplete: () => void, onOpenNewCard: () => void }> = ({ onComplete, onOpenNewCard }) => {
+  const { isActionPressed } = useShortcuts()
   const [inputText, setInputText] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [resultText, setResultText] = useState('')
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key.toLowerCase() === 'n') {
+      if (isActionPressed('card.new', e)) {
         e.preventDefault()
         onOpenNewCard()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onOpenNewCard])
+  }, [onOpenNewCard, isActionPressed])
 
   const handleGenerate = async () => {
     if (!inputText.trim()) return
@@ -327,7 +329,9 @@ const AiVersion: React.FC<{ onComplete: () => void, onOpenNewCard: () => void }>
               {resultText}
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center text-gray-300 dark:text-gray-600 text-sm">This is an AI-generated Version.</div>
+            <div className="h-full flex items-center justify-center text-gray-300 dark:text-gray-600 text-sm">
+              New Version: Fresh Expressions
+            </div>
           )}
         </div>
         

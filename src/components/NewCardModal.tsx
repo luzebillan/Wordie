@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { UsefulExpressions } from './NewCards/UsefulExpressions'
+import { useShortcuts } from '../hooks/useShortcuts'
 
 interface NewCardModalProps {
   isOpen: boolean
@@ -7,17 +8,18 @@ interface NewCardModalProps {
 }
 
 export const NewCardModal: React.FC<NewCardModalProps> = ({ isOpen, onClose }) => {
-  // Global hotkey Ctrl+N
+  const { isActionPressed } = useShortcuts()
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (isActionPressed('modal.close', e) && isOpen) {
         onClose()
       }
     }
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  }, [isOpen, onClose, isActionPressed])
 
   if (!isOpen) return null
 

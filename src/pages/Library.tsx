@@ -272,8 +272,25 @@ export const Library: React.FC = () => {
                   <div className="flex-1 overflow-hidden flex flex-col pt-4">
                     <div className="flex justify-between items-start mb-3 gap-2 pl-6 pr-6">
                       <div className="text-base font-bold text-gray-900 dark:text-gray-100 line-clamp-2 break-words leading-tight">{card.front}</div>
-                      <div className="text-[9px] px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded uppercase tracking-widest font-bold shrink-0">
-                        {card.type}
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <div className="text-[9px] px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded uppercase tracking-widest font-bold shrink-0">
+                          {card.type}
+                        </div>
+                        {card.type === 'Useful Expressions' && (
+                          <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider">
+                            {card.style || 'General'}
+                          </div>
+                        )}
+                        {card.type === 'Glossary' && card.label && (
+                          <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider max-w-[120px] truncate" title={card.label}>
+                            {card.label}
+                          </div>
+                        )}
+                        {card.type === 'Ready Versions' && card.label && (
+                          <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider">
+                            {card.label}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="text-sm text-gray-600 dark:text-gray-400 line-clamp-4 break-words flex-1">
@@ -328,15 +345,32 @@ export const Library: React.FC = () => {
                           <div className="line-clamp-2" title={card.front}>{card.front}</div>
                         </td>
                         <td 
-                          className="p-4 text-gray-500 dark:text-gray-400"
+                          className="p-4 text-gray-500 dark:text-gray-400" 
                           onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id })); }}
                         >
                           <div className="line-clamp-2" title={card.back}>{card.back}</div>
                         </td>
                         <td className="p-4" onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id })); }}>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 whitespace-nowrap">
-                            {card.type}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 whitespace-nowrap">
+                              {card.type}
+                            </span>
+                            {card.type === 'Useful Expressions' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                                {card.style || 'General'}
+                              </span>
+                            )}
+                            {card.type === 'Glossary' && card.label && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 whitespace-nowrap max-w-[140px] truncate" title={card.label}>
+                                {card.label}
+                              </span>
+                            )}
+                            {card.type === 'Ready Versions' && card.label && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                                {card.label}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-4 text-gray-400 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id })); }}>
                           R:{card.repetitions || 0} · I:{card.interval || 0}d

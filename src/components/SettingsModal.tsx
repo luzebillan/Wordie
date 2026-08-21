@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import * as Prompts from '../constants/prompts'
+import { SHORTCUT_CATEGORIES, SHORTCUT_DEFINITIONS, DEFAULT_SHORTCUTS, parseKeyboardEvent, formatShortcutDisplay } from '../utils/shortcuts'
 import wordieLogo from '../assets/icon.png'
 
 interface SettingsModalProps {
@@ -8,7 +9,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data' | 'advanced' | 'prompts' | 'about'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data' | 'advanced' | 'prompts' | 'shortcuts' | 'about'>('general')
   
   // General State
   const [showSplash, setShowSplash] = useState(true)
@@ -43,6 +44,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [promptPracticeRewrite, setPromptPracticeRewrite] = useState('')
   const [promptAiVersion, setPromptAiVersion] = useState('')
   const [promptSynonyms, setPromptSynonyms] = useState('')
+
+  // Shortcuts State
+  const [shortcuts, setShortcuts] = useState<Record<string, string>>(DEFAULT_SHORTCUTS)
+  const [recordingActionId, setRecordingActionId] = useState<string | null>(null)
   
   // UI State
   const [isValidating, setIsValidating] = useState(false)
@@ -132,9 +137,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         setPromptPracticeRewrite(settings.promptPracticeRewrite || Prompts.DEFAULT_PROMPT_PRACTICE_REWRITE)
         setPromptAiVersion(settings.promptAiVersion || Prompts.DEFAULT_PROMPT_AI_VERSION)
         setPromptSynonyms(settings.promptSynonyms || Prompts.DEFAULT_PROMPT_SYNONYMS)
+        if (settings.customShortcuts) {
+          try {
+            setShortcuts({ ...DEFAULT_SHORTCUTS, ...JSON.parse(settings.customShortcuts) })
+          } catch (e) {
+            setShortcuts(DEFAULT_SHORTCUTS)
+          }
+        } else {
+          setShortcuts(DEFAULT_SHORTCUTS)
+        }
       })
+    } else {
+      setRecordingActionId(null)
     }
   }, [isOpen])
+
+  // Key recording listener
+  useEffect(() => {
+    if (!recordingActionId) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      const parsed = parseKeyboardEvent(e)
+      if (parsed) {
+        const updated = { ...shortcuts, [recordingActionId]: parsed }
+        setShortcuts(updated)
+        autoSave('customShortcuts', JSON.stringify(updated))
+        setRecordingActionId(null)
+        showToast(`Shortcut set to ${parsed}`, 'success')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [recordingActionId, shortcuts])
+
+  const handleResetShortcut = (actionId: string) => {
+    const updated = { ...shortcuts, [actionId]: DEFAULT_SHORTCUTS[actionId] }
+    setShortcuts(updated)
+    autoSave('customShortcuts', JSON.stringify(updated))
+    showToast('Shortcut reset to default', 'success')
+  }
+
+  const handleResetAllShortcuts = () => {
+    setShortcuts(DEFAULT_SHORTCUTS)
+    autoSave('customShortcuts', JSON.stringify(DEFAULT_SHORTCUTS))
+    showToast('All shortcuts reset to defaults', 'success')
+  }
 
   const autoSave = async (key: string, value: string) => {
     await window.ipcRenderer.saveSettings({ [key]: value })
@@ -291,7 +344,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               AI & API
             </button>
             <button 
-              onClick={() => setActiveTab('prompts')}
+              onClick={() => { setActiveTab('prompts'); setRecordingActionId(null); }}
               className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'prompts' 
                   ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
@@ -301,7 +354,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               AI Prompts
             </button>
             <button 
-              onClick={() => setActiveTab('advanced')}
+              onClick={() => { setActiveTab('shortcuts'); setRecordingActionId(null); }}
+              className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'shortcuts' 
+                  ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Shortcuts
+            </button>
+            <button 
+              onClick={() => { setActiveTab('advanced'); setRecordingActionId(null); }}
               className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'advanced' 
                   ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
@@ -719,7 +782,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                     {renderPromptField('Glossary Definition', promptGlossary, setPromptGlossary, 'promptGlossary', 'Generates flashcard definitions. Placeholders: {{term}}, {{labels}}', Prompts.DEFAULT_PROMPT_GLOSSARY)}
                     {renderPromptField('Daily Word System Prompt', promptDailyWord, setPromptDailyWord, 'promptDailyWord', 'System persona for generating localized words from image or context.', Prompts.DEFAULT_PROMPT_DAILY_WORD)}
-                    {renderPromptField('Synonyms Strict Filter', promptSynonyms, setPromptSynonyms, 'promptSynonyms', 'Filters AI synonyms. Placeholders: {{targetFront}}, {{targetBack}}, {{candidatesStr}}', Prompts.DEFAULT_PROMPT_SYNONYMS)}
+                    {renderPromptField('Synonyms Strict Filter', promptSynonyms, setPromptSynonyms, 'promptSynonyms', 'Filters AI synonyms. Placeholders: {{targetFront}}, {{context}}, {{candidatesStr}}', Prompts.DEFAULT_PROMPT_SYNONYMS)}
                     {renderPromptField('Expression Generation', promptExpression, setPromptExpression, 'promptExpression', 'Creates concise English definitions. Placeholders: {{front}}, {{context}}', Prompts.DEFAULT_PROMPT_EXPRESSION)}
                     {renderPromptField('Revision Cloze', promptRevisionCloze, setPromptRevisionCloze, 'promptRevisionCloze', 'Creates cloze deletion sentences. Placeholders: {{display_phrase}}, {{back}}, {{clean_snippet}}, {{wordsToBlank}}', Prompts.DEFAULT_PROMPT_REVISION_CLOZE)}
                     
@@ -730,6 +793,112 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     {renderPromptField('AI Version', promptAiVersion, setPromptAiVersion, 'promptAiVersion', 'Generates flawless, concise, and idiomatic interpretation in the same language. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_AI_VERSION)}
                     {renderPromptField('Vocabulary Fusion', promptRewrite, setPromptRewrite, 'promptRewrite', 'Rephrases text using specific vocab. Placeholders: {{dbText}}, {{text}}', Prompts.DEFAULT_PROMPT_REWRITE)}
                   </div>
+                </div>
+              ) : activeTab === 'shortcuts' ? (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200/50 dark:border-gray-700/50">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                        Shortcuts Configuration
+                      </h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Click a shortcut badge to record a new key combination.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleResetAllShortcuts}
+                      className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 border border-gray-200 dark:border-gray-700 rounded-lg transition-colors shadow-sm"
+                    >
+                      Reset All to Defaults
+                    </button>
+                  </div>
+
+                  {SHORTCUT_CATEGORIES.map(category => {
+                    const categoryDefinitions = SHORTCUT_DEFINITIONS.filter(def => def.category === category.id)
+                    return (
+                      <div key={category.id} className="space-y-3">
+                        <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 tracking-wider">
+                          {category.name}
+                        </h4>
+                        <div className="rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50 divide-y divide-gray-200/50 dark:divide-gray-700/50 overflow-hidden">
+                          {categoryDefinitions.map(def => {
+                            const currentCombo = shortcuts[def.id] || def.defaultKey
+                            const isRecording = recordingActionId === def.id
+                            const isCustomized = currentCombo !== def.defaultKey
+
+                            // Check conflict within same category
+                            const conflictDef = SHORTCUT_DEFINITIONS.find(
+                              other => other.id !== def.id &&
+                              other.category === def.category &&
+                              (shortcuts[other.id] || other.defaultKey) === currentCombo
+                            )
+
+                            return (
+                              <div key={def.id} className="p-3.5 flex items-center justify-between gap-4">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                      {def.name}
+                                    </span>
+                                    {conflictDef && (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50">
+                                        Conflict: {conflictDef.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                                    {def.description}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {isRecording ? (
+                                    <div className="flex items-center gap-2">
+                                      <span className="animate-pulse px-3 py-1.5 rounded-lg border-2 border-dashed border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-semibold">
+                                        Press keys...
+                                      </span>
+                                      <button
+                                        onClick={() => setRecordingActionId(null)}
+                                        className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 px-1"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={() => setRecordingActionId(def.id)}
+                                        className={`px-3 py-1.5 rounded-lg font-mono text-xs font-semibold transition-all border shadow-sm ${
+                                          isCustomized
+                                            ? 'bg-purple-50 text-purple-700 border-purple-300 hover:border-purple-500 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700'
+                                            : 'bg-white text-gray-800 border-gray-300 hover:border-purple-400 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700'
+                                        }`}
+                                        title="Click to change shortcut"
+                                      >
+                                        {formatShortcutDisplay(currentCombo)}
+                                      </button>
+                                      {isCustomized && (
+                                        <button
+                                          onClick={() => handleResetShortcut(def.id)}
+                                          className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                                          title="Reset to default"
+                                        >
+                                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                          </svg>
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               ) : null}
             </div>

@@ -381,7 +381,11 @@ export async function practicePureListener(text: string, settings: any) {
 export async function practiceRewrite(text: string, settings: any, dbHandlers: any) {
   // 1. Extract expressions to optimize
   const rewriteDivider = parseInt(settings.rewriteDivider || '20', 10)
-  const allCards = dbHandlers.searchCards('', 'Useful Expression')
+  let allCards = dbHandlers.getCards ? dbHandlers.getCards('Useful Expressions') : []
+  if (!allCards || allCards.length === 0) {
+    // Fallback to all cards if no 'Useful Expressions' specific cards exist
+    allCards = dbHandlers.getCards ? dbHandlers.getCards() : []
+  }
   const totalCards = allCards.length
   
   if (totalCards === 0) {
@@ -400,7 +404,28 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     return { success: false, error: 'AI failed to extract expressions: ' + extractRes.error }
   }
 
-  const phrases = extractRes.result.split('|').map((p: string) => p.trim()).filter((p: string) => p.length > 0)
+  const rawExtracted = extractRes.result.trim()
+  if (rawExtracted.toUpperCase() === 'NONE' || rawExtracted.toUpperCase().startsWith('NONE')) {
+    return {
+      success: true,
+      result: {
+        text: "Your text is already very well written and doesn't need any changes! (当前文章表达已经非常地道，无需改写)",
+        cards: []
+      }
+    }
+  }
+
+  const phrases = rawExtracted.split('|').map((p: string) => p.trim()).filter((p: string) => p.length > 0 && p.toUpperCase() !== 'NONE')
+
+  if (phrases.length === 0) {
+    return {
+      success: true,
+      result: {
+        text: "Your text is already very well written and doesn't need any changes! (当前文章表达已经非常地道，无需改写)",
+        cards: []
+      }
+    }
+  }
 
   // 2. Search for relevant cards
   const matchedCards = new Set<any>()
@@ -408,8 +433,8 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
   // Use our local semantic search
   // We'll just search each phrase and take the top result.
   for (const phrase of phrases) {
-    const results = await dbHandlers.findSimilarCards(phrase, phrase, 'Useful Expression')
-    if (results.length > 0) {
+    const results = await dbHandlers.findSimilarCards(phrase, phrase, 'Useful Expressions')
+    if (results && results.length > 0) {
       matchedCards.add(results[0])
     }
   }
@@ -420,6 +445,16 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     const randomCard = allCards[Math.floor(Math.random() * allCards.length)]
     if (!finalCards.find(c => c.id === randomCard.id)) {
       finalCards.push(randomCard)
+    }
+  }
+
+  if (finalCards.length === 0) {
+    return {
+      success: true,
+      result: {
+        text: "Your text is already very well written and doesn't need any changes! (当前文章表达已经非常地道，无需改写)",
+        cards: []
+      }
     }
   }
 
@@ -450,37 +485,87 @@ export async function practiceAiVersion(text: string, settings: any) {
   return { success: true, result: aiRes.result.trim() }
 }
 
+export function extractJsonArray(rawText: string): string[] | null {
+  if (!rawText) return null
+  let cleaned = rawText.trim()
+  
+  // 1. Check for markdown code fence ```json ... ``` or ``` ... ```
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim()
+  }
+
+  // 2. Extract substring between outermost [ and ]
+  const firstBracket = cleaned.indexOf('[')
+  const lastBracket = cleaned.lastIndexOf(']')
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    cleaned = cleaned.substring(firstBracket, lastBracket + 1)
+  }
+
+  // 3. Try standard JSON.parse
+  try {
+    const parsed = JSON.parse(cleaned)
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => String(item).trim()).filter(Boolean)
+    }
+  } catch {}
+
+  // 4. Try lenient parsing: replace single quotes with double quotes, remove trailing commas
+  try {
+    const sanitized = cleaned
+      .replace(/'/g, '"')
+      .replace(/,\s*\]/g, ']')
+    const parsed = JSON.parse(sanitized)
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => String(item).trim()).filter(Boolean)
+    }
+  } catch {}
+
+  // 5. Fallback regex to match numbers or quoted strings inside the bracketed text
+  const itemMatches = cleaned.match(/["']?(\d+)["']?/g)
+  if (itemMatches) {
+    const ids = itemMatches.map(m => m.replace(/["']/g, '').trim()).filter(Boolean)
+    if (ids.length > 0) {
+      return Array.from(new Set(ids))
+    }
+  }
+
+  if (cleaned === '[]') return []
+
+  return null
+}
+
 export async function aiFilterSynonyms(
   targetFront: string,
   targetBack: string,
   candidates: any[],
-  settings: any
+  settings: any,
+  context: string = ''
 ): Promise<{ success: boolean; result?: string[]; error?: string }> {
+  if (!candidates || candidates.length === 0) {
+    return { success: true, result: [] }
+  }
+
   // Construct candidates string
   const candidatesStr = candidates.map(c => `[ID: ${c.id}] Word: ${c.front}\nDefinition: ${c.back}`).join('\n\n')
 
   const template = settings['promptSynonyms'] || DEFAULT_PROMPT_SYNONYMS
   const prompt = template
-    .replace('{{targetFront}}', targetFront)
-    .replace('{{targetBack}}', targetBack)
-    .replace('{{candidatesStr}}', candidatesStr)
+    .replaceAll('{{targetFront}}', targetFront)
+    .replaceAll('{{targetBack}}', targetBack)
+    .replaceAll('{{context}}', context || '')
+    .replaceAll('{{targetContext}}', context || '')
+    .replaceAll('{{candidatesStr}}', candidatesStr)
 
   const aiRes = await callAiApi(prompt, settings)
   if (!aiRes.success || !aiRes.result) {
-    return { success: false, error: 'AI failed to filter synonyms: ' + aiRes.error }
+    return { success: false, error: 'AI failed to filter synonyms: ' + (aiRes.error || 'Empty response') }
   }
 
-  try {
-    let jsonStr = aiRes.result.trim()
-    const match = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-    if (match) {
-      jsonStr = match[1]
-    }
-    const ids = JSON.parse(jsonStr)
-    if (!Array.isArray(ids)) throw new Error('Result is not an array')
-    // Ensure all IDs are parsed as numbers/strings properly so they match candidate IDs
-    return { success: true, result: ids.map(id => String(id)) }
-  } catch (err: any) {
-    return { success: false, error: 'Failed to parse AI response as JSON array: ' + aiRes.result }
+  const ids = extractJsonArray(aiRes.result)
+  if (ids !== null) {
+    return { success: true, result: ids }
   }
+
+  return { success: false, error: 'Failed to parse AI response as JSON array: ' + aiRes.result }
 }

@@ -1,23 +1,77 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { Save } from 'lucide-react'
+import { Save, Shuffle, RotateCcw } from 'lucide-react'
+import {
+  type SessionCardItem,
+  type CardReviewStatus,
+  type ReviewAction,
+  initSessionQueue,
+  computeSessionStats,
+  applyReviewToQueue,
+  applyUndoToQueue,
+  applySkipToQueue,
+  applyShuffleToQueue,
+  syncCardTextInQueue,
+  createSessionItem
+} from '../utils/revisionSession'
+import { useShortcuts } from '../hooks/useShortcuts'
 
 interface RevisionProps {
   specificCardId?: number
   isActive?: boolean
 }
 
-type CardReviewStatus = 'toReview' | 'secondReview' | 'memorized'
+// Lightweight synthesized chime using Web Audio API singleton (Zero external assets needed)
+let audioCtx: AudioContext | null = null
+const playClozeReadySound = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioContextClass) return
+    if (!audioCtx) {
+      audioCtx = new AudioContextClass()
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {})
+    }
+    const ctx = audioCtx
+    const now = ctx.currentTime
+
+    // Harmonious chime (E5: 659.25Hz -> B5: 987.77Hz)
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(659.25, now)
+    osc.frequency.exponentialRampToValueAtTime(987.77, now + 0.06)
+
+    // Gentle fade in / fade out to avoid clicks
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.06, now + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22)
+
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+
+    osc.start(now)
+    osc.stop(now + 0.22)
+  } catch (e) {
+    // Graceful fallback
+  }
+}
 
 export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = true }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
+
   // Session Queue State (fixed for this app run)
-  const [sessionQueue, setSessionQueue] = useState<any[]>([])
+  const [sessionQueue, setSessionQueue] = useState<SessionCardItem[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [cardStatusMap, setCardStatusMap] = useState<Map<number, CardReviewStatus>>(new Map())
+  const [undoStack, setUndoStack] = useState<ReviewAction[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const sessionInitializedRef = useRef(false)
+  const clozeReqIdRef = useRef(0)
 
   // Single card mode state (when viewing/reviewing a specific card from library/search)
-  const [singleCard, setSingleCard] = useState<any | null>(null)
+  const [singleCard, setSingleCard] = useState<SessionCardItem | null>(null)
   const [singleCardFinished, setSingleCardFinished] = useState(false)
 
   const [showAnswer, setShowAnswer] = useState(false)
@@ -33,6 +87,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
 
   // Reverse State for Glossary and Ready Versions
   const [isReversed, setIsReversed] = useState<boolean>(false)
+  const [isShuffling, setIsShuffling] = useState(false)
 
   // Timer & Threshold State
   const [timerStartTime, setTimerStartTime] = useState<number | null>(null)
@@ -57,15 +112,11 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       setIsLoading(true)
       try {
         const cards = await window.ipcRenderer.getDueCards()
-        const initialCards = cards || []
-        setSessionQueue(initialCards)
+        const { queue, statusMap } = initSessionQueue(cards || [])
+        setSessionQueue(queue)
         setCurrentIndex(0)
-
-        const initialMap = new Map<number, CardReviewStatus>()
-        initialCards.forEach((c: any) => {
-          initialMap.set(c.id, 'toReview')
-        })
-        setCardStatusMap(initialMap)
+        setCardStatusMap(statusMap)
+        setUndoStack([])
       } catch (e) {
         console.error('Failed to initialize revision session:', e)
       } finally {
@@ -82,7 +133,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       setIsLoading(true)
       setSingleCardFinished(false)
       window.ipcRenderer.getCard(specificCardId).then(card => {
-        setSingleCard(card || null)
+        setSingleCard(card ? createSessionItem(card) : null)
         setIsLoading(false)
       }).catch(err => {
         console.error(err)
@@ -111,35 +162,40 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
 
   // Compute session stats derived from cardStatusMap
   const stats = useMemo(() => {
-    let memorized = 0
-    let forgotten = 0
-    let toReview = 0
-    cardStatusMap.forEach(status => {
-      if (status === 'memorized') memorized++
-      else if (status === 'secondReview') forgotten++
-      else if (status === 'toReview') toReview++
-    })
-    return { memorized, forgotten, toReview }
+    return computeSessionStats(cardStatusMap)
   }, [cardStatusMap])
 
-  // Current active card
+  // Current active card item
   const currentCard = specificCardId 
     ? singleCard 
     : (currentIndex < sessionQueue.length ? sessionQueue[currentIndex] : null)
 
-  // Reset card states and trigger Cloze if needed
+  // Reset card states and trigger Cloze whenever active card presentation instance changes
   useEffect(() => {
     if (!currentCard) return
 
     setEditFront(currentCard.front || '')
     setEditBack(currentCard.back || '')
-    setIsReversed((currentCard.type === 'Glossary' || currentCard.type === 'Ready Versions') ? Math.random() > 0.5 : false)
+
+    // Determine reverse state safely
+    let shouldReverse = false
+    if (currentCard.type === 'Glossary') {
+      const frontParts = (currentCard.front || '').split('\n')
+      const backParts = (currentCard.back || '').split('\n')
+      if (frontParts.length >= 2 && backParts.length >= 2) {
+        shouldReverse = Math.random() > 0.5
+      }
+    } else if (currentCard.type === 'Ready Versions') {
+      if (currentCard.back && currentCard.back.trim()) {
+        shouldReverse = Math.random() > 0.5
+      }
+    }
+    setIsReversed(shouldReverse)
+
     setShowAnswer(false)
     setElapsedSeconds(0)
     setLiveElapsedMs(0)
     setIsEditingMode(false)
-
-    let isMounted = true
 
     if (currentCard.type === 'Useful Expressions') {
       setClozeContext('')
@@ -147,12 +203,17 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       setClozeLoading(true)
       setTimerStartTime(null) // Timing has NOT started yet during generation
 
+      const reqId = ++clozeReqIdRef.current
+
       window.ipcRenderer.generateRevisionCloze({ front: currentCard.front, back: currentCard.back })
         .then(res => {
-          if (!isMounted) return
+          if (reqId !== clozeReqIdRef.current) return
           setClozeLoading(false)
           if (res.success && res.result) {
             setClozeContext(res.result)
+            if (isActive) {
+              playClozeReadySound()
+            }
             setTimerStartTime(Date.now())
             setLiveElapsedMs(0)
           } else {
@@ -162,7 +223,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
           }
         })
         .catch((err: any) => {
-          if (!isMounted) return
+          if (reqId !== clozeReqIdRef.current) return
           setClozeLoading(false)
           setClozeError(err?.message || 'Failed to generate cloze context.')
           setTimerStartTime(Date.now())
@@ -175,11 +236,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       setTimerStartTime(Date.now())
       setLiveElapsedMs(0)
     }
-
-    return () => {
-      isMounted = false
-    }
-  }, [currentCard?.id])
+  }, [currentCard?._sessionKey])
 
   const handleRetryCloze = async () => {
     if (!currentCard) return
@@ -187,10 +244,13 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     setClozeError(null)
     setTimerStartTime(null)
     setLiveElapsedMs(0)
+    const reqId = ++clozeReqIdRef.current
     try {
       const res = await window.ipcRenderer.generateRevisionCloze({ front: currentCard.front, back: currentCard.back })
+      if (reqId !== clozeReqIdRef.current) return
       if (res.success && res.result) {
         setClozeContext(res.result)
+        if (isActive) playClozeReadySound()
         setTimerStartTime(Date.now())
         setLiveElapsedMs(0)
       } else {
@@ -198,10 +258,13 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
         setTimerStartTime(Date.now())
       }
     } catch (err: any) {
+      if (reqId !== clozeReqIdRef.current) return
       setClozeError(err?.message || 'Failed to generate cloze context.')
       setTimerStartTime(Date.now())
     } finally {
-      setClozeLoading(false)
+      if (reqId === clozeReqIdRef.current) {
+        setClozeLoading(false)
+      }
     }
   }
 
@@ -241,25 +304,28 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
 
   const handleSkipCard = () => {
     if (specificCardId || !currentCard) return
-    setSessionQueue(prev => {
-      const next = [...prev]
-      const [skipped] = next.splice(currentIndex, 1)
-      next.push(skipped)
-      return next
-    })
+    const res = applySkipToQueue(sessionQueue, currentIndex)
+    setSessionQueue(res.nextQueue)
   }
 
   const handleShuffle = () => {
     if (specificCardId || !currentCard) return
-    setSessionQueue(prev => {
-      const done = prev.slice(0, currentIndex)
-      const remaining = prev.slice(currentIndex)
-      for (let i = remaining.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
-      }
-      return [...done, ...remaining]
-    })
+    const res = applyShuffleToQueue(sessionQueue, currentIndex)
+    if (res.shuffledCount <= 1) {
+      window.dispatchEvent(new CustomEvent('show-toast', { 
+        detail: { message: 'Only 1 card left, no need to shuffle' } 
+      }))
+      return
+    }
+
+    setIsShuffling(true)
+    setTimeout(() => setIsShuffling(false), 500)
+
+    setSessionQueue(res.nextQueue)
+
+    window.dispatchEvent(new CustomEvent('show-toast', { 
+      detail: { message: `Shuffled ${res.shuffledCount} remaining cards` } 
+    }))
   }
 
   const handleShowAnswer = () => {
@@ -275,6 +341,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     // Save any inline edits before moving on
     if (editFront !== currentCard.front || editBack !== currentCard.back) {
       await window.ipcRenderer.updateCardText(currentCard.id, editFront, editBack)
+      setSessionQueue(prev => syncCardTextInQueue(prev, currentCard.id, editFront, editBack))
     }
 
     const timeToRecord = elapsedSeconds > 0 ? elapsedSeconds : (timerStartTime ? Math.max(0.1, (Date.now() - timerStartTime) / 1000) : 0.1)
@@ -290,48 +357,29 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     const rating = isCorrect ? getRatingForTime(timeToRecord) : 'again'
     await window.ipcRenderer.reviewCard(currentCard.id, isCorrect, rating, timeToRecord)
 
-    // Update status in session map
-    setCardStatusMap(prev => {
-      const next = new Map(prev)
-      next.set(currentCard.id, isCorrect ? 'memorized' : 'secondReview')
-      return next
-    })
-
-    if (!isCorrect) {
-      // Re-insert card slightly ahead in the queue so it reappears for second review
-      setSessionQueue(prev => {
-        const next = [...prev]
-        const insertIdx = Math.min(currentIndex + 4, next.length)
-        next.splice(insertIdx, 0, currentCard)
-        return next
-      })
-    }
-
-    // Advance to next card in session
-    setCurrentIndex(prev => prev + 1)
+    // Apply review to state machine
+    const res = applyReviewToQueue(sessionQueue, currentIndex, isCorrect, cardStatusMap)
+    setSessionQueue(res.nextQueue)
+    setCurrentIndex(res.nextIndex)
+    setCardStatusMap(res.nextStatusMap)
+    setUndoStack(prev => [...prev, res.action])
 
     // Notify other components (Sidebar, Dashboard) to refresh stats
     window.dispatchEvent(new Event('stats-updated'))
   }
 
   const handleUndo = async () => {
-    if (specificCardId || isEditingMode || clozeLoading || currentIndex === 0) return
+    if (specificCardId || isEditingMode || clozeLoading || currentIndex === 0 || undoStack.length === 0) return
 
     await window.ipcRenderer.undoReview()
 
-    const prevIndex = currentIndex - 1
-    const prevCard = sessionQueue[prevIndex]
+    const lastAction = undoStack[undoStack.length - 1]
+    const res = applyUndoToQueue(sessionQueue, currentIndex, lastAction, cardStatusMap)
 
-    if (prevCard) {
-      setCardStatusMap(prev => {
-        const next = new Map(prev)
-        const hadPriorEncounter = sessionQueue.slice(0, prevIndex).some(c => c.id === prevCard.id)
-        next.set(prevCard.id, hadPriorEncounter ? 'secondReview' : 'toReview')
-        return next
-      })
-    }
-
-    setCurrentIndex(prevIndex)
+    setSessionQueue(res.nextQueue)
+    setCurrentIndex(res.nextIndex)
+    setCardStatusMap(res.nextStatusMap)
+    setUndoStack(prev => prev.slice(0, -1))
     window.dispatchEvent(new Event('stats-updated'))
   }
 
@@ -347,7 +395,26 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     if (specificCardId) {
       setSingleCard((prev: any) => prev ? { ...prev, front: editFront, back: editBack } : prev)
     } else {
-      setSessionQueue(prev => prev.map(c => c.id === currentCard.id ? { ...c, front: editFront, back: editBack } : c))
+      setSessionQueue(prev => syncCardTextInQueue(prev, currentCard.id, editFront, editBack))
+    }
+  }
+
+  const handleCheckDueCards = async () => {
+    setIsLoading(true)
+    try {
+      const cards = await window.ipcRenderer.getDueCards()
+      const { queue, statusMap } = initSessionQueue(cards || [])
+      setSessionQueue(queue)
+      setCurrentIndex(0)
+      setCardStatusMap(statusMap)
+      setUndoStack([])
+      if ((cards || []).length === 0) {
+        window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'No new cards due for review!' } }))
+      }
+    } catch (e) {
+      console.error('Failed to reload due cards:', e)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -358,54 +425,66 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return // Ignore shortcuts when typing
       }
-      if (e.key === ' ' || e.code === 'Space') {
+      // Ignore shortcuts if a modal dialog is active
+      const isModalOpen = !!document.querySelector('.fixed.z-\\[100\\], .fixed.z-\\[101\\], [role="dialog"]')
+      if (isModalOpen) return
+
+      if (isActionPressed('revision.flip', e)) {
         e.preventDefault()
         if (isEditingMode || clozeLoading) return
         if (!showAnswer) handleShowAnswer()
         else handleReview(true)
-      }
-      if (e.key.toLowerCase() === 'f' && showAnswer && !isEditingMode && !clozeLoading) {
+      } else if (isActionPressed('revision.forget', e) && showAnswer && !isEditingMode && !clozeLoading) {
         e.preventDefault()
         handleReview(false)
-      }
-      if (e.key.toLowerCase() === 'e' && !isEditingMode && !clozeLoading) {
+      } else if (isActionPressed('revision.edit', e) && !isEditingMode && !clozeLoading) {
         e.preventDefault()
         setIsEditingMode(true)
-      }
-      if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey)) {
+      } else if (isActionPressed('revision.save', e)) {
         e.preventDefault()
         if (isEditingMode) handleSaveEdit()
-      }
-      if (e.key.toLowerCase() === 'z' && (e.ctrlKey || e.metaKey) && !specificCardId && !isEditingMode && !clozeLoading) {
+      } else if (isActionPressed('revision.undo', e) && !specificCardId && !isEditingMode && !clozeLoading) {
         e.preventDefault()
         handleUndo()
+      } else if (isActionPressed('revision.cancel', e) && isEditingMode) {
+        e.preventDefault()
+        setIsEditingMode(false)
+        if (currentCard) {
+          setEditFront(currentCard.front || '')
+          setEditBack(currentCard.back || '')
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showAnswer, isEditingMode, clozeLoading, currentCard, editFront, editBack, specificCardId, isActive, timerStartTime, elapsedSeconds, currentIndex, sessionQueue])
+  }, [showAnswer, isEditingMode, clozeLoading, currentCard, editFront, editBack, specificCardId, isActive, timerStartTime, elapsedSeconds, currentIndex, sessionQueue, undoStack, isActionPressed])
 
   const renderCardFront = () => {
     if (!currentCard) return null
 
     switch (currentCard.type) {
-      case 'Useful Expressions':
+      case 'Useful Expressions': {
+        const styleLabel = currentCard.style || 'General'
         if (clozeLoading) {
           return (
-            <div className="text-center text-xl font-medium leading-relaxed text-gray-400 animate-pulse">
-              Generating contextual cloze from Sketch Engine...
+            <div className="text-center">
+              <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{styleLabel}</div>
+              <div className="text-center text-xl font-medium leading-relaxed text-gray-400 animate-pulse">
+                Generating contextual cloze from Sketch Engine...
+              </div>
             </div>
           )
         }
         if (clozeError) {
           return (
             <div className="text-center">
+              <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{styleLabel}</div>
               <div className="text-red-500 mb-4">{clozeError}</div>
               <div className="flex gap-4 justify-center">
-                <button onClick={handleRetryCloze} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full font-medium text-sm transition-colors">
+                <button onClick={handleRetryCloze} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 rounded-full font-medium text-sm transition-colors">
                   Retry
                 </button>
-                <button onClick={handleSkipCard} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full font-medium text-sm transition-colors">
+                <button onClick={handleSkipCard} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 rounded-full font-medium text-sm transition-colors">
                   Skip Card
                 </button>
               </div>
@@ -414,22 +493,32 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
         }
         if (clozeContext) {
           return (
-            <div className="text-center text-xl font-medium leading-relaxed">
-              {clozeContext}
+            <div className="text-center">
+              <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{styleLabel}</div>
+              <div className="text-center text-xl font-medium leading-relaxed">
+                {clozeContext}
+              </div>
             </div>
           )
         }
-        return <div className="text-center text-2xl font-bold">{currentCard.front}</div>
+        return (
+          <div className="text-center">
+            <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{styleLabel}</div>
+            <div className="text-center text-2xl font-bold">{currentCard.front}</div>
+          </div>
+        )
+      }
 
       case 'Glossary': {
         const frontParts = (currentCard.front || '').split('\n')
         const backParts = (currentCard.back || '').split('\n')
-        let questionTop = isReversed ? (frontParts[1] || '') : (frontParts[0] || '')
-        let questionBottom = isReversed ? (backParts[1] || '') : (backParts[0] || '')
+        let questionTop = isReversed ? (frontParts[1] || frontParts[0] || '') : (frontParts[0] || '')
+        let questionBottom = isReversed ? (backParts[1] || backParts[0] || '') : (backParts[0] || '')
+        const glossaryTag = currentCard.label || currentCard.sourceContext || 'General'
 
         return (
           <div className="text-center">
-            <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{currentCard.sourceContext || 'General'}</div>
+            <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{glossaryTag}</div>
             <div className="text-3xl font-bold mb-4">{questionTop}</div>
             <div className="text-xl text-gray-500">{questionBottom}</div>
           </div>
@@ -439,15 +528,19 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       case 'Daily Words':
         return (
           <div className="text-center flex flex-col items-center">
-            {currentCard.imageUrl && !currentCard.imageUrl.startsWith('http') && (
-              <img src={`local-asset://${currentCard.imageUrl}`} className="h-48 w-auto object-contain rounded-xl shadow-sm mb-6" alt="Card" />
+            {currentCard.imageUrl && (
+              <img 
+                src={currentCard.imageUrl.startsWith('http') ? currentCard.imageUrl : `local-asset://${currentCard.imageUrl}`} 
+                className="h-48 w-auto object-contain rounded-xl shadow-sm mb-6" 
+                alt="Card" 
+              />
             )}
             <div className="text-3xl font-bold">{currentCard.front}</div>
           </div>
         )
 
       case 'Ready Versions': {
-        const questionText = isReversed ? currentCard.back : currentCard.front
+        const questionText = isReversed ? (currentCard.back || currentCard.front) : currentCard.front
         return (
           <div className="text-center">
             {currentCard.label && (
@@ -478,8 +571,8 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       case 'Glossary': {
         const frontParts = (currentCard.front || '').split('\n')
         const backParts = (currentCard.back || '').split('\n')
-        let answerTop = isReversed ? (frontParts[0] || '') : (frontParts[1] || '')
-        let answerBottom = isReversed ? (backParts[0] || '') : (backParts[1] || '')
+        let answerTop = isReversed ? (frontParts[0] || '') : (frontParts[1] || frontParts[0] || '')
+        let answerBottom = isReversed ? (backParts[0] || '') : (backParts[1] || backParts[0] || '')
 
         return (
           <div className="text-center">
@@ -531,9 +624,16 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       <div className="h-full flex flex-col items-center justify-center animate-in zoom-in duration-500">
         <div className="text-6xl mb-6">🎉</div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">You're all caught up!</h2>
-        <p className="text-gray-500 dark:text-gray-400 text-center max-w-md">
+        <p className="text-gray-500 dark:text-gray-400 text-center max-w-md mb-6">
           You've finished all your reviews for today. Great job! Come back tomorrow or add some new cards.
         </p>
+        <button
+          onClick={handleCheckDueCards}
+          className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-sm transition-colors shadow-sm"
+        >
+          <RotateCcw className="w-4 h-4" />
+          Check for Due Cards
+        </button>
       </div>
     )
   }
@@ -544,20 +644,22 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     <div className="h-full flex flex-col items-center animate-in fade-in duration-500 max-w-3xl mx-auto w-full pt-8">
       {/* Progress Bar */}
       {!specificCardId && (
-        <div className="w-full mb-8 relative">
-          <button 
-            onClick={handleShuffle} 
-            className="absolute -top-2 right-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors bg-white dark:bg-[#1f2028] p-1.5 rounded-full shadow-sm border border-gray-100 dark:border-gray-800"
-            title="Shuffle Remaining Cards"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-          </button>
-          <div className="flex items-center gap-6 text-xs font-medium text-gray-500 mb-2 justify-center">
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-800 dark:bg-gray-200"></span> Reviewed {stats.memorized}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400"></span> Second Review {stats.forgotten}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700"></span> To Review {stats.toReview}</span>
+        <div className="w-full mb-8">
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex-1 flex items-center gap-6 text-xs font-medium text-gray-500 justify-center pl-7">
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-800 dark:bg-gray-200"></span> Reviewed {stats.memorized}</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400"></span> Second Review {stats.forgotten}</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700"></span> To Review {stats.toReview}</span>
+            </div>
+            <button 
+              onClick={handleShuffle} 
+              className={`w-7 h-7 shrink-0 flex items-center justify-center text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 bg-white dark:bg-[#1f2028] hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-full shadow-sm border border-gray-100 dark:border-gray-800 hover:border-purple-200 dark:hover:border-purple-800/50 transition-colors ${
+                isShuffling ? 'text-purple-600 dark:text-purple-400 border-purple-300 dark:border-purple-600' : ''
+              }`}
+              title="Shuffle Remaining Cards"
+            >
+              <Shuffle className={`w-3.5 h-3.5 transition-transform duration-500 ${isShuffling ? 'rotate-180' : ''}`} />
+            </button>
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-1.5 flex overflow-hidden">
             {totalSessionCards > 0 ? (
@@ -574,15 +676,25 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       )}
       
       {currentCard && (
-        <div className="w-full text-center text-sm font-bold text-gray-400 mb-2 tracking-widest uppercase relative">
-          {currentCard.type}
-          {currentCard.type === 'Useful Expressions' && currentCard.label && currentCard.label !== 'Vocabulary' && (
-            <span className="ml-3 text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-300 px-2 py-1 rounded">
+        <div className="w-full text-center text-sm font-bold text-gray-400 mb-2 tracking-widest uppercase relative flex items-center justify-center gap-2">
+          <span>{currentCard.type}</span>
+          {currentCard.type === 'Useful Expressions' && (
+            <span className="text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 px-2 py-0.5 rounded-md font-semibold">
+              {currentCard.style || 'General'}
+            </span>
+          )}
+          {currentCard.type === 'Glossary' && currentCard.label && (
+            <span className="text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 px-2 py-0.5 rounded-md font-semibold">
+              {currentCard.label}
+            </span>
+          )}
+          {currentCard.type === 'Ready Versions' && currentCard.label && (
+            <span className="text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 px-2 py-0.5 rounded-md font-semibold">
               {currentCard.label}
             </span>
           )}
           {specificCardId && (
-            <span className="ml-2 text-xs text-purple-500">(Single Review)</span>
+            <span className="text-xs text-purple-500 font-medium">(Single Review)</span>
           )}
         </div>
       )}
@@ -616,7 +728,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
                   }
                 }}
                 className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full text-gray-400 transition-colors"
-                title="Edit Card (E)"
+                title={`Edit Card (${getShortcutDisplay('revision.edit')})`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -638,14 +750,16 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
               )}
             </div>
 
-            {!showAnswer && !isEditingMode && !clozeLoading ? (
+            {!showAnswer && !isEditingMode ? (
               <div className="mt-8 pt-4 border-t border-dashed border-transparent flex justify-center w-full">
-                <button
-                  onClick={handleShowAnswer}
-                  className="text-gray-400 font-bold hover:text-gray-600 dark:hover:text-gray-200 transition-colors text-sm flex items-center gap-1"
-                >
-                  <span>↓</span> Show Answers
-                </button>
+                {!clozeLoading && (
+                  <button
+                    onClick={handleShowAnswer}
+                    className="text-gray-400 font-bold hover:text-gray-600 dark:hover:text-gray-200 transition-colors text-sm flex items-center gap-1"
+                  >
+                    <span>↓</span> Show Answers ({getShortcutDisplay('revision.flip')})
+                  </button>
+                )}
               </div>
             ) : (
               <>
@@ -679,7 +793,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
                         className="flex items-center gap-2 px-6 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
                       >
                         <Save className="w-4 h-4" />
-                        Save
+                        Save ({getShortcutDisplay('revision.save')})
                       </button>
                     )}
                   </div>
@@ -695,7 +809,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
                 onClick={() => handleReview(false)}
                 className="px-8 py-3 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded-full font-bold text-base transition-colors flex items-center gap-2 shadow-sm"
               >
-                <span className="text-lg leading-none">×</span> Forget
+                <span className="text-lg leading-none">×</span> Forget ({getShortcutDisplay('revision.forget')})
               </button>
               <button
                 onClick={() => handleReview(true)}
@@ -706,7 +820,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
                 }`}
               >
                 <span className="text-lg leading-none">√</span> 
-                Got it ({getRatingBadgeUI(elapsedSeconds).label})
+                Got it ({getShortcutDisplay('revision.flip')})
               </button>
             </div>
           )}

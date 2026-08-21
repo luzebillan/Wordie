@@ -6,7 +6,7 @@ interface Window {
     deleteCard: (id: number) => Promise<{success: boolean; error?: string}>
     deleteCards: (ids: number[]) => Promise<{success: boolean; error?: string}>
     searchCards: (query: string, type?: string) => Promise<any[]>
-    findSimilarCards: (front: string, back?: string, type?: string, useLLM?: boolean) => Promise<any[]>
+    findSimilarCards: (front: string, back?: string, type?: string, useLLM?: boolean, context?: string) => Promise<any[]>
     incrementUseCount: (id: number) => Promise<void>
     incrementEncounterCount: (id: number) => Promise<void>
     incrementManualReviewCount: (id: number) => Promise<void>

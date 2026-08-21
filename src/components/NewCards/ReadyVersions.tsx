@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Save } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
+import { useSimilarCards } from '../../hooks/useSimilarCards'
+import { useShortcuts } from '../../hooks/useShortcuts'
 
 interface ReadyVersionsProps {
   onNavigate?: (view: string, props?: any) => void;
@@ -10,14 +12,23 @@ interface ReadyVersionsProps {
 const TYPES = ['Noun Phrase', 'Verb Phrase', 'Adjective Phrase', 'Sentence']
 
 export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpdateStats }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
+  const containerRef = useRef<HTMLDivElement>(null)
   const [label, setLabel] = useState(TYPES[0])
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
   const [error, setError] = useState('')
-  const [similarCards, setSimilarCards] = useState<any[]>([])
-  const [toastMessage, setToastMessage] = useState('')
 
-  // Debounced search for similar cards removed by user request
+  const {
+    mode,
+    similarCards,
+    isSearching,
+    isAnalyzing,
+    toastMessage,
+    setSearchQuery,
+    handleIncrementReviewCount,
+    reset
+  } = useSimilarCards({ cardType: 'Ready Versions' })
 
   const handleSave = async () => {
     if (!front || !back) {
@@ -36,7 +47,8 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
       setFront('')
       setBack('')
       setError('')
-      setSimilarCards([])
+      reset()
+
       if (onUpdateStats) onUpdateStats()
       window.dispatchEvent(new Event('stats-updated'))
       window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Card saved successfully!' } }))
@@ -45,22 +57,21 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
     }
   }
 
-  const handleIncrementManualReviewCount = async (id: number) => {
-    try {
-      await window.ipcRenderer.incrementManualReviewCount(id)
-      const updated = await window.ipcRenderer.findSimilarCards(front.trim(), back.trim())
-      setSimilarCards(updated)
-      if (onUpdateStats) onUpdateStats()
-      
-      setToastMessage('+1 Added successfully!')
-      setTimeout(() => setToastMessage(''), 3000)
-    } catch (err: any) {
-      console.error(err)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!containerRef.current || containerRef.current.offsetParent === null) return
+      if (isActionPressed('card.submit', e)) {
+        e.preventDefault()
+        handleSave()
+      }
     }
-  }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [front, back, label, isActionPressed])
 
   return (
-    <div className="flex h-full animate-in fade-in duration-500">
+    <div ref={containerRef} className="flex h-full animate-in fade-in duration-500">
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
         
@@ -88,9 +99,13 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
           <input
             type="text"
             value={front}
-            onChange={e => setFront(e.target.value)}
+            onChange={e => {
+              const val = e.target.value
+              setFront(val)
+              setSearchQuery(val)
+            }}
             className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="Type the Front Side of Your New Card Here"
+            placeholder="Enter Chinese"
           />
         </div>
 
@@ -103,7 +118,7 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
             value={back}
             onChange={e => setBack(e.target.value)}
             className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-            placeholder="Type the Back Side of Your New Card Here"
+            placeholder="Enter English"
           />
         </div>
 
@@ -116,15 +131,19 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
           >
             <Save className="w-4 h-4" />
             Save
+            <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>
           </button>
         </div>
       </div>
 
-      {/* Right Panel: Duplicate Checker */}
+      {/* Right Panel: Duplicate Checker & Matching Versions */}
       <FuzzyMatchList 
         similarCards={similarCards}
-        emptyMessage="No Similar Versions Found"
-        onIncrement={handleIncrementManualReviewCount}
+        mode={mode}
+        isSearching={isSearching}
+        isAnalyzing={isAnalyzing}
+        emptyMessage={front.trim() ? "No Matching Versions Found" : "Start typing to search existing versions..."}
+        onIncrement={handleIncrementReviewCount}
         onNavigate={onNavigate}
         toastMessage={toastMessage}
       />

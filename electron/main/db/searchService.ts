@@ -5,28 +5,31 @@ import { settingsRepo } from './settingsRepo'
 
 export const searchService = {
   searchCards: (query: string = '', type?: string) => {
-    if (!query) {
+    const trimmed = query.trim();
+    if (!trimmed) {
       if (type) {
-        return db.prepare('SELECT * FROM cards WHERE type = ? ORDER BY createdAt DESC').all(type);
+        return db.prepare('SELECT * FROM cards WHERE type = ? ORDER BY createdAt DESC LIMIT 50').all(type);
       }
-      return db.prepare('SELECT * FROM cards ORDER BY createdAt DESC').all();
+      return [];
     }
     
     // Keyword / Fuzzy string matching using SQLite FTS5 (BM25)
-    const ftsSearchTerms = query.replace(/["]/g, "").trim().split(/\s+/).filter(Boolean);
+    const sanitized = trimmed.replace(/"/g, '""');
+    const ftsSearchTerms = sanitized.split(/\s+/).filter(Boolean);
     const safeQuery = ftsSearchTerms.map(term => `"${term}"*`).join(' OR ');
     
+    let ftsResults: any[] = [];
     if (safeQuery) {
       try {
         if (type) {
-          return db.prepare(`
+          ftsResults = db.prepare(`
             SELECT c.* FROM cards_fts f 
             JOIN cards c ON f.rowid = c.id 
             WHERE f.cards_fts MATCH ? AND c.type = ? 
             ORDER BY rank LIMIT 15
           `).all(safeQuery, type);
         } else {
-          return db.prepare(`
+          ftsResults = db.prepare(`
             SELECT c.* FROM cards_fts f 
             JOIN cards c ON f.rowid = c.id 
             WHERE f.cards_fts MATCH ? 
@@ -34,28 +37,51 @@ export const searchService = {
           `).all(safeQuery);
         }
       } catch (e) {
-        console.warn("FTS query failed", e);
+        console.warn("FTS query failed, falling back to LIKE", e);
       }
     }
     
-    return [];
+    if (ftsResults && ftsResults.length > 0) {
+      return ftsResults;
+    }
+
+    // Fallback to LIKE substring search (e.g. for CJK or partial substrings)
+    try {
+      const likePattern = `%${trimmed}%`;
+      if (type) {
+        return db.prepare(`
+          SELECT * FROM cards 
+          WHERE type = ? AND (front LIKE ? OR back LIKE ? OR label LIKE ?)
+          ORDER BY createdAt DESC LIMIT 15
+        `).all(type, likePattern, likePattern, likePattern);
+      } else {
+        return db.prepare(`
+          SELECT * FROM cards 
+          WHERE front LIKE ? OR back LIKE ? OR label LIKE ?
+          ORDER BY createdAt DESC LIMIT 15
+        `).all(likePattern, likePattern, likePattern);
+      }
+    } catch (e) {
+      console.warn("LIKE query failed", e);
+      return [];
+    }
   },
 
-  findSimilarCards: async (front: string, back: string = '', type?: string, useLLM: boolean = false) => {
+  findSimilarCards: async (front: string, back: string = '', type?: string, useLLM: boolean = false, context: string = '') => {
     if (!front && !back) return [];
     
     // We completely remove FTS (Keyword checking) based on user directive.
     const safeQuery = [front, back].filter(Boolean).join(' ').replace(/[^\w\s\u4e00-\u9fa5]/g, '').trim();
     if (!safeQuery) return [];
 
-    let semanticResults = [];
-    
     // Stage 1: Vector Search (High Recall)
     const semanticQuery = back ? (front ? `${front}: ${back}` : back) : front;
-    const lanceResults = await searchCardVectors(semanticQuery, undefined, 30);
+    const lanceResults = await searchCardVectors(semanticQuery, type, 30);
     
     const rawScoredCards: { card: any, score: number }[] = [];
-    const allCards = db.prepare('SELECT * FROM cards').all() as any[];
+    const allCards = type
+      ? db.prepare('SELECT * FROM cards WHERE type = ?').all(type) as any[]
+      : db.prepare('SELECT * FROM cards').all() as any[];
     const cardsMap = new Map(allCards.map(c => [c.id, c]));
     
     for (const r of lanceResults) {
@@ -81,20 +107,24 @@ export const searchService = {
       if (candidates.length >= 15) break; 
     }
     
-    const settings = settingsRepo.getSettings();
+    // Stage 2: LLM Strict Filtering (for Synonyms)
+    if (useLLM) {
+      const settings = settingsRepo.getSettings();
+      if (!settings['aiKey'] || candidates.length === 0) {
+        return [];
+      }
 
-    // Stage 2: LLM Strict Filtering
-    if (useLLM && settings['aiKey'] && candidates.length > 0) {
       console.log(`[Semantic Analysis] Sending ${candidates.length} candidates to LLM for strict synonym filtering...`);
-      const aiRes = await aiFilterSynonyms(front, back, candidates, settings);
+      const aiRes = await aiFilterSynonyms(front, back, candidates, settings, context);
       
       if (aiRes.success && aiRes.result) {
         const matchedIds = new Set(aiRes.result.map(id => parseInt(id, 10)));
-        semanticResults = candidates.filter(c => matchedIds.has(c.id));
+        const semanticResults = candidates.filter(c => matchedIds.has(c.id));
         console.log(`[Semantic Analysis] LLM returned ${semanticResults.length} strict synonyms.`);
         return semanticResults.slice(0, 10);
       } else {
-        console.warn(`[Semantic Analysis] LLM filter failed: ${aiRes.error}. Returning broad candidates.`);
+        console.warn(`[Semantic Analysis] LLM filter failed or returned no match: ${aiRes.error}`);
+        return [];
       }
     }
 

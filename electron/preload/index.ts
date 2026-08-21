@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
   deleteCards: (ids: number[]) => ipcRenderer.invoke('delete-cards', ids),
   searchCards: (query: string, type?: string) => ipcRenderer.invoke('search-cards', { query, type }),
-  findSimilarCards: (front: string, back: string = '', type?: string, useLLM?: boolean) => ipcRenderer.invoke('find-similar-cards', { front, back, type, useLLM }),
+  findSimilarCards: (front: string, back: string = '', type?: string, useLLM?: boolean, context: string = '') => ipcRenderer.invoke('find-similar-cards', { front, back, type, useLLM, context }),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
   incrementEncounterCount: (id: number) => ipcRenderer.invoke('increment-encounter-count', id),
   incrementManualReviewCount: (id: number) => ipcRenderer.invoke('increment-manual-review-count', id),

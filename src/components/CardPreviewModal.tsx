@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { CardEditForm } from './CardEditForm'
+import { useShortcuts } from '../hooks/useShortcuts'
 
 interface CardPreviewModalProps {
   cardId: number | null
@@ -9,6 +10,7 @@ interface CardPreviewModalProps {
 }
 
 export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, context = 'default', initialEditMode = false, onClose }) => {
+  const { isActionPressed } = useShortcuts()
   const [card, setCard] = useState<any | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isEditingMode, setIsEditingMode] = useState(initialEditMode)
@@ -25,12 +27,14 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
       setIsLoading(true)
       window.ipcRenderer.getCard(cardId).then(data => {
         setCard(data)
-        setEditFront(data?.front || '')
-        setEditBack(data?.back || '')
-        setEditLabel(data?.label || '')
-        setEditType(data?.type || '')
-        setIsEditingMode(initialEditMode)
         setIsLoading(false)
+        if (data) {
+          setEditFront(data.front || '')
+          setEditBack(data.back || '')
+          setEditLabel(data.label || '')
+          setEditType(data.type || '')
+        }
+        setIsEditingMode(initialEditMode)
         setSynonyms([])
         setIsSearchingSynonyms(false)
         setShowDeleteConfirm(false)
@@ -38,25 +42,22 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
     } else {
       setCard(null)
     }
-  }, [cardId])
+  }, [cardId, initialEditMode])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return // Ignore shortcuts when typing
       }
-      if (e.key === 'Escape') onClose()
-      if (e.key.toLowerCase() === 'e' && !isEditingMode) {
+      if (isActionPressed('modal.close', e)) onClose()
+      if (isActionPressed('revision.edit', e) && !isEditingMode) {
         e.preventDefault()
         setIsEditingMode(true)
-      }
-      if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, isEditingMode, editFront, editBack, editLabel, editType, card])
+  }, [onClose, isEditingMode, editFront, editBack, editLabel, editType, card, isActionPressed])
 
   const handleSaveEdit = async (updates: { front?: string, back?: string, label?: string, type?: string, style?: string, imageUrl?: string }) => {
     if (!card) return
@@ -74,7 +75,7 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
     if (!card) return
     setIsSearchingSynonyms(true)
     try {
-      const results = await window.ipcRenderer.findSimilarCards(card.front, card.back, card.type, true)
+      const results = await window.ipcRenderer.findSimilarCards(card.front, card.back, card.type, true, card.sourceContext || '')
       const filtered = results.filter((r: any) => r.id !== card.id).slice(0, 5)
       setSynonyms(filtered)
     } catch (e) {
@@ -100,15 +101,21 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
     if (!card) return null
     switch (card.type) {
       case 'Useful Expressions':
-        return <div className="text-center text-3xl font-bold text-purple-600 dark:text-purple-400">{card.front}</div>
+        return (
+          <div className="text-center">
+            <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{card.style || 'General'}</div>
+            <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">{card.front}</div>
+          </div>
+        )
       case 'Glossary': {
         const frontParts = (card.front || '').split('\n')
         const backParts = (card.back || '').split('\n')
         let questionTop = (frontParts[0] || '')
         let questionBottom = (backParts[0] || '')
+        const glossaryTag = card.label || card.sourceContext || 'General'
         return (
           <div className="text-center">
-            <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{card.sourceContext || 'General'}</div>
+            <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{glossaryTag}</div>
             <div className="text-3xl font-bold mb-4">{questionTop}</div>
             <div className="text-xl text-gray-500">{questionBottom}</div>
           </div>
@@ -117,8 +124,12 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
       case 'Daily Words':
         return (
           <div className="text-center flex flex-col items-center">
-            {card.imageUrl && !card.imageUrl.startsWith('http') && (
-              <img src={`local-asset://${card.imageUrl}`} className="h-48 w-auto object-contain rounded-xl shadow-sm mb-6" alt="Card" />
+            {card.imageUrl && (
+              <img 
+                src={card.imageUrl.startsWith('http') ? card.imageUrl : `local-asset://${card.imageUrl}`} 
+                className="h-48 w-auto object-contain rounded-xl shadow-sm mb-6" 
+                alt="Card" 
+              />
             )}
             <div className="text-3xl font-bold">{card.front}</div>
           </div>
@@ -222,7 +233,12 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({ cardId, cont
           <>
             {/* Card Attribute UI - Moved to Center */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2 w-full max-w-[60%]">
-              {card.type} {card.label && card.label !== 'Vocabulary' ? `• ${card.label}` : ''}
+              <span>{card.type}</span>
+              {card.type === 'Useful Expressions' ? (
+                <span>• {card.style || 'General'}</span>
+              ) : card.label && card.label !== 'Vocabulary' ? (
+                <span>• {card.label}</span>
+              ) : null}
             </div>
 
             {/* Top Left Action Button - Delete */}

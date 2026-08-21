@@ -24,7 +24,10 @@ export const cardsRepo = {
     return { id: result.lastInsertRowid, ...card }
   },
   
-  getCards: () => {
+  getCards: (type?: string) => {
+    if (type) {
+      return db.prepare('SELECT * FROM cards WHERE type = ? ORDER BY createdAt DESC').all(type)
+    }
     return db.prepare('SELECT * FROM cards ORDER BY createdAt DESC').all()
   },
   
@@ -33,15 +36,15 @@ export const cardsRepo = {
   },
 
   incrementUseCount: (id: number) => {
-    db.exec(`UPDATE cards SET useCount = useCount + 1 WHERE id = ${id}`)
+    db.prepare('UPDATE cards SET useCount = useCount + 1 WHERE id = ?').run(id)
   },
 
   incrementEncounterCount: (id: number) => {
-    db.exec(`UPDATE cards SET encounterCount = encounterCount + 1 WHERE id = ${id}`)
+    db.prepare('UPDATE cards SET encounterCount = encounterCount + 1 WHERE id = ?').run(id)
   },
 
   incrementManualReviewCount: (id: number) => {
-    db.exec(`UPDATE cards SET manualReviewCount = manualReviewCount + 1 WHERE id = ${id}`)
+    db.prepare('UPDATE cards SET manualReviewCount = manualReviewCount + 1 WHERE id = ?').run(id)
   },
 
   updateCardText: async (id: number, front: string, back: string) => {

@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Save } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
+import { useSimilarCards } from '../../hooks/useSimilarCards'
+import { useShortcuts } from '../../hooks/useShortcuts'
 
 interface DailyWordsProps {
   onNavigate?: (view: string, props?: any) => void;
@@ -8,6 +10,8 @@ interface DailyWordsProps {
 }
 
 export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStats }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
+  const containerRef = useRef<HTMLDivElement>(null)
   const [front, setFront] = useState('')
   const [context, setContext] = useState('')
   const [imageUrl, setImageUrl] = useState('')
@@ -15,8 +19,18 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
   const [back, setBack] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
-  const [similarCards, setSimilarCards] = useState<any[]>([])
-  const [toastMessage, setToastMessage] = useState('')
+
+  const {
+    mode,
+    similarCards,
+    isSearching,
+    isAnalyzing,
+    toastMessage,
+    setSearchQuery,
+    triggerSemanticSearch,
+    handleIncrementReviewCount,
+    reset
+  } = useSimilarCards({ cardType: 'Daily Words' })
 
   const handleGenerate = async () => {
     if (!front.trim() && !imageUrl.trim()) {
@@ -35,8 +49,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       const res = await window.ipcRenderer.generateDailyWord(payload)
       if (res.success && res.result) {
         setBack(res.result)
-        const updated = await window.ipcRenderer.findSimilarCards(front, res.result, 'Daily Words', true)
-        setSimilarCards(updated)
+        await triggerSemanticSearch(front || '[Image Only]', res.result, 'Daily Words', context)
       } else {
         setError(res.error || 'Failed to generate explanation.')
       }
@@ -78,26 +91,13 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       setImageUrl('')
       setBack('')
       setError('')
-      setSimilarCards([])
+      reset()
+
       if (onUpdateStats) onUpdateStats()
       window.dispatchEvent(new Event('stats-updated'))
       window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Card saved successfully!' } }))
     } catch (err: any) {
       setError(err.message || 'Failed to save card.')
-    }
-  }
-
-  const handleIncrementManualReviewCount = async (id: number) => {
-    try {
-      await window.ipcRenderer.incrementManualReviewCount(id)
-      const updated = await window.ipcRenderer.findSimilarCards(front.trim(), back.trim())
-      setSimilarCards(updated)
-      if (onUpdateStats) onUpdateStats()
-      
-      setToastMessage('+1 Added successfully!')
-      setTimeout(() => setToastMessage(''), 3000)
-    } catch (err: any) {
-      console.error(err)
     }
   }
 
@@ -139,8 +139,26 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
     }
   }
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!containerRef.current || containerRef.current.offsetParent === null) return
+      if (isActionPressed('card.submit', e)) {
+        e.preventDefault()
+        if (isGenerating) return
+        if (!back.trim()) {
+          handleGenerate()
+        } else {
+          handleSave()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [front, context, imageUrl, back, isGenerating, isActionPressed])
+
   return (
-    <div className="flex h-full animate-in fade-in duration-500">
+    <div ref={containerRef} className="flex h-full animate-in fade-in duration-500">
       {/* Left Panel: Form */}
       <div className="flex-1 pl-1 pt-1 pr-8 overflow-y-auto">
         
@@ -152,11 +170,12 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
               type="text"
               value={front}
               onChange={e => {
-                setFront(e.target.value)
-                setSimilarCards([])
+                const val = e.target.value
+                setFront(val)
+                setSearchQuery(val)
               }}
               className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
-              placeholder="e.g. Joyful"
+              placeholder="Enter Chinese word"
             />
             <span className="font-bold text-gray-500 text-sm whitespace-nowrap">in</span>
             <input
@@ -182,7 +201,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
               value={imageUrl}
               onChange={e => setImageUrl(e.target.value)}
               className="flex-1 p-2 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm text-sm"
-              placeholder="Paste the Link of Your Photo"
+              placeholder="Paste Image URL"
             />
             {imageUrl && imageUrl.startsWith('http') && (
               <button
@@ -209,7 +228,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
             ) : imageUrl ? (
               <img src={imageUrl} alt="External Preview" className="absolute inset-0 w-full h-full object-contain p-2 opacity-50" />
             ) : (
-              <span className="text-gray-400 text-sm font-medium">Paste the Link of Your Photo</span>
+              <span className="text-gray-400 text-sm font-medium">Photo Preview</span>
             )}
           </div>
         </div>
@@ -226,19 +245,17 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
                 <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
               </svg>
               {isGenerating ? 'Generating...' : 'Back Side'}
+              {!back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>}
             </button>
             {error && <span className="text-red-500 text-sm">{error}</span>}
           </div>
           
           <textarea
             value={back}
-            onChange={e => {
-              setBack(e.target.value)
-              setSimilarCards([])
-            }}
+            onChange={e => setBack(e.target.value)}
             disabled={isGenerating}
             className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
-            placeholder="AI-Generated Card Content Here"
+            placeholder="Find English Counterparts (or type your own version)"
           />
         </div>
 
@@ -250,15 +267,19 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
           >
             <Save className="w-4 h-4" />
             Save
+            {back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>}
           </button>
         </div>
       </div>
 
-      {/* Right Panel: Duplicate Checker */}
+      {/* Right Panel: Duplicate Checker & Similar Words */}
       <FuzzyMatchList 
         similarCards={similarCards}
-        emptyMessage="No Similar Words Found"
-        onIncrement={handleIncrementManualReviewCount}
+        mode={mode}
+        isSearching={isSearching}
+        isAnalyzing={isAnalyzing}
+        emptyMessage={front.trim() ? "No Matching Words Found" : "Start typing to search existing words..."}
+        onIncrement={handleIncrementReviewCount}
         onNavigate={onNavigate}
         toastMessage={toastMessage}
       />

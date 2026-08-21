@@ -23,6 +23,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
   const [isSearching, setIsSearching] = useState(false)
   const [showResults, setShowResults] = useState(false)
   const searchRef = React.useRef<HTMLDivElement>(null)
+  const searchInputRef = React.useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const handleFocusSearch = () => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    }
+    window.addEventListener('focus-search', handleFocusSearch)
+    return () => window.removeEventListener('focus-search', handleFocusSearch)
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -137,6 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
         <div className="relative w-full flex items-center bg-gray-100 dark:bg-black/40 rounded-lg">
           <Search className="h-4 w-4 absolute left-3 top-2.5 text-gray-400" />
           <input 
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => {

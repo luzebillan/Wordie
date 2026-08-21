@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { DOMAINS, getStoredDomainFields } from '../constants/domains'
+import { useShortcuts } from '../hooks/useShortcuts'
 
 export interface CardEditFormProps {
   card: any
@@ -26,9 +27,25 @@ export const CardEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSa
 }
 
 const UsefulExpressionsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSave }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
   const [front, setFront] = useState(card.front || '')
   const [back, setBack] = useState(card.back || '')
   const [style, setStyle] = useState(card.style || 'General')
+
+  const handleSave = () => {
+    onSave({ front, back, style })
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isActionPressed('card.submit', e)) {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [front, back, style, isActionPressed])
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
@@ -47,7 +64,6 @@ const UsefulExpressionsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel
             <option value="General">General</option>
             <option value="Formal">Formal</option>
             <option value="Informal">Informal</option>
-            <option value="Slang">Slang</option>
           </select>
         </div>
 
@@ -72,7 +88,10 @@ const UsefulExpressionsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel
 
       <div className="flex justify-end gap-3 pt-6 mt-auto border-t border-gray-100 dark:border-gray-800">
         <button onClick={onCancel} className="px-5 py-2.5 rounded-xl font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-        <button onClick={() => onSave({ front, back, style })} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">Save Changes</button>
+        <button onClick={handleSave} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">
+          Save Changes
+          <span className="text-xs opacity-75 font-normal ml-1">({getShortcutDisplay('card.submit')})</span>
+        </button>
       </div>
     </div>
   )
@@ -81,6 +100,7 @@ const UsefulExpressionsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel
 
 
 const GlossaryEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSave }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
   const frontParts = (card.front || '').split('\n')
   const backParts = (card.back || '').split('\n')
   
@@ -151,6 +171,17 @@ const GlossaryEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSave 
     const label = labels.join(', ')
     onSave({ front, back, label })
   }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isActionPressed('card.submit', e)) {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [targetTerm, englishTerm, chineseExp, englishExp, labels, isActionPressed])
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
@@ -245,16 +276,35 @@ const GlossaryEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSave 
 
       <div className="flex justify-end gap-3 pt-6 mt-auto border-t border-gray-100 dark:border-gray-800">
         <button onClick={onCancel} className="px-5 py-2.5 rounded-xl font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-        <button onClick={handleSave} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">Save Changes</button>
+        <button onClick={handleSave} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">
+          Save Changes
+          <span className="text-xs opacity-75 font-normal ml-1">({getShortcutDisplay('card.submit')})</span>
+        </button>
       </div>
     </div>
   )
 }
 
 const DailyWordsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSave }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
   const [front, setFront] = useState(card.front || '')
   const [back, setBack] = useState(card.back || '')
   const [imageUrl, setImageUrl] = useState(card.imageUrl || '')
+
+  const handleSave = () => {
+    onSave({ front, back, imageUrl })
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isActionPressed('card.submit', e)) {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [front, back, imageUrl, isActionPressed])
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
@@ -274,9 +324,13 @@ const DailyWordsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSav
               placeholder="https://..."
             />
           </div>
-          {imageUrl && !imageUrl.startsWith('http') && (
+          {imageUrl && (
             <div className="mt-3">
-              <img src={`local-asset://${imageUrl}`} alt="Preview" className="h-24 w-auto object-contain rounded-lg border border-gray-200 dark:border-gray-800" />
+              <img 
+                src={imageUrl.startsWith('http') ? imageUrl : `local-asset://${imageUrl}`} 
+                alt="Preview" 
+                className="h-24 w-auto object-contain rounded-lg border border-gray-200 dark:border-gray-800" 
+              />
             </div>
           )}
         </div>
@@ -303,17 +357,36 @@ const DailyWordsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSav
 
       <div className="flex justify-end gap-3 pt-6 mt-auto border-t border-gray-100 dark:border-gray-800">
         <button onClick={onCancel} className="px-5 py-2.5 rounded-xl font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-        <button onClick={() => onSave({ front, back, imageUrl })} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">Save Changes</button>
+        <button onClick={handleSave} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">
+          Save Changes
+          <span className="text-xs opacity-75 font-normal ml-1">({getShortcutDisplay('card.submit')})</span>
+        </button>
       </div>
     </div>
   )
 }
 
 const ReadyVersionsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSave }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
   const TYPES = ['Noun Phrase', 'Verb Phrase', 'Adjective Phrase', 'Sentence']
   const [label, setLabel] = useState(card.label || TYPES[0])
   const [front, setFront] = useState(card.front || '')
   const [back, setBack] = useState(card.back || '')
+
+  const handleSave = () => {
+    onSave({ front, back, label })
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isActionPressed('card.submit', e)) {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [front, back, label, isActionPressed])
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
@@ -360,7 +433,10 @@ const ReadyVersionsEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, on
 
       <div className="flex justify-end gap-3 pt-6 mt-auto border-t border-gray-100 dark:border-gray-800">
         <button onClick={onCancel} className="px-5 py-2.5 rounded-xl font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-        <button onClick={() => onSave({ front, back, label })} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">Save Changes</button>
+        <button onClick={handleSave} className="px-5 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors">
+          Save Changes
+          <span className="text-xs opacity-75 font-normal ml-1">({getShortcutDisplay('card.submit')})</span>
+        </button>
       </div>
     </div>
   )

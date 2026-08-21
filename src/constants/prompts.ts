@@ -67,8 +67,9 @@ Summarize the main idea and point out any logical gaps or contradictions.
 
 export const DEFAULT_PROMPT_PRACTICE_EXTRACT = `I have written a text.
 <task>
-Identify exactly {{targetCount}} expressions or chunks of words in my text that could be improved or made more advanced.
-Output ONLY the exact words/phrases from my text, separated by a pipe character (|). Do not include any other text or formatting.
+Identify up to {{targetCount}} expressions or chunks of words in my text that could be improved or made more advanced.
+If the text is already exceptionally well-written, idiomatic, and requires no changes, output ONLY "NONE".
+Otherwise, output ONLY the exact words/phrases from my text, separated by a pipe character (|). Do not include any other text or formatting.
 </task>
 <input_text>
 {{text}}
@@ -109,19 +110,15 @@ Reinterpret the following transcript into a flawless, concise, native, and highl
 </input_text>`
 
 export const DEFAULT_PROMPT_SYNONYMS = `You are an expert lexicographer. Your task is to identify valid synonyms for a Target Word from a provided list of Candidates.
-
 Target Word: "{{targetFront}}"
-Target Definition: "{{targetBack}}"
-
+Given Context: "{{context}}"
 Candidates:
 {{candidatesStr}}
-
 EVALUATION CRITERIA:
 To be selected, a candidate MUST meet ALL of the following criteria:
 1. Core Semantic Overlap: The candidate must represent the same fundamental action, state, or concept. Minor nuances in motivation, intensity, or flavor are FULLY ACCEPTABLE (e.g., "play the contrarian" and "play devil's advocate" are valid synonyms despite nuanced differences in intent).
-2. Functional Interchangeability: The candidate must be able to replace the target word in a general sentence while preserving the core message.
+2. Contextual Paraphrase: The selected candidate must be one with which the given context can be paraphrased or rewritten while preserving the core message(s).
 3. Strict Concept Boundary: The candidate MUST NOT be a cause, consequence, merely related topic, or antonym. (e.g., if the target is "happy", "joyful" is valid, but "serendipity" is INVALID because serendipity is a lucky event that *causes* happiness, not the emotion itself).
-
 OUTPUT FORMAT:
 Return a raw JSON array containing ONLY the string IDs of the selected candidates. Do not provide any conversational filler, markdown formatting, or explanations.
 Example: ["1", "5", "8"]`
