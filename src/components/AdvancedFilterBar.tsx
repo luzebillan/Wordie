@@ -240,7 +240,9 @@ export const AdvancedFilterBar: React.FC<AdvancedFilterBarProps> = ({
             >
               <option value="All">All Labels</option>
               {availableLabels.map(lbl => (
-                <option key={lbl} value={lbl}>{lbl}</option>
+                <option key={lbl} value={lbl}>
+                  {lbl.includes('/') ? lbl.replace(/\//g, ' › ') : lbl}
+                </option>
               ))}
             </select>
           </div>

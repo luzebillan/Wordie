@@ -19,13 +19,16 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
   const [isLoading, setIsLoading] = useState(true)
   const [filters, setFilters] = useState<CardFilterState>(DEFAULT_FILTER_STATE)
   
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>(() => {
+    return (localStorage.getItem('wordie_library_view_mode') as 'grid' | 'table') || 'table'
+  })
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   
   const [cardsToDelete, setCardsToDelete] = useState<number[]>([])
   
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, card: any } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -37,20 +40,33 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
     return () => window.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const fetchCards = async () => {
-    setIsLoading(true)
+  const handleViewModeChange = (mode: 'grid' | 'table') => {
+    setViewMode(mode)
+    localStorage.setItem('wordie_library_view_mode', mode)
+  }
+
+  const fetchCards = async (showLoading = false) => {
+    if (showLoading) setIsLoading(true)
+    const savedScrollTop = scrollContainerRef.current?.scrollTop
     try {
       const data = await window.ipcRenderer.getCards()
       setCards(data || [])
     } catch (error) {
       console.error('Failed to fetch cards:', error)
     } finally {
-      setIsLoading(false)
+      if (showLoading) setIsLoading(false)
+      if (savedScrollTop !== undefined && scrollContainerRef.current) {
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = savedScrollTop
+          }
+        })
+      }
     }
   }
 
   useEffect(() => {
-    fetchCards()
+    fetchCards(true)
     
     const handleCardDeleted = (e: any) => {
       const deletedCardId = e.detail
@@ -61,12 +77,25 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
         return next
       })
     }
+
+    const handleCardUpdated = (e: any) => {
+      const updatedCard = e.detail
+      if (!updatedCard || !updatedCard.id) return
+      setCards(prev => prev.map(card => card.id === updatedCard.id ? { ...card, ...updatedCard } : card))
+    }
+
+    const handleStatsUpdated = () => {
+      fetchCards(false)
+    }
+
     window.addEventListener('card-deleted', handleCardDeleted)
-    window.addEventListener('stats-updated', fetchCards)
+    window.addEventListener('card-updated', handleCardUpdated)
+    window.addEventListener('stats-updated', handleStatsUpdated)
     
     return () => {
       window.removeEventListener('card-deleted', handleCardDeleted)
-      window.removeEventListener('stats-updated', fetchCards)
+      window.removeEventListener('card-updated', handleCardUpdated)
+      window.removeEventListener('stats-updated', handleStatsUpdated)
     }
   }, [])
 
@@ -184,18 +213,18 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
 
         <div className="flex items-center bg-gray-50 dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl p-1 shadow-sm">
           <button 
-            onClick={() => setViewMode('grid')}
-            className={`p-1.5 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-gray-800 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
-            title="Grid View"
-          >
-            <Grid className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={() => setViewMode('table')}
+            onClick={() => handleViewModeChange('table')}
             className={`p-1.5 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-gray-800 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
             title="Table View"
           >
             <List className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={() => handleViewModeChange('grid')}
+            className={`p-1.5 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-gray-800 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+            title="Grid View"
+          >
+            <Grid className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -235,7 +264,7 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto pr-4 pb-8">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pr-4 pb-8">
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
@@ -342,13 +371,37 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
                           className="p-4 font-medium text-gray-900 dark:text-gray-100" 
                           onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id })); }}
                         >
-                          <div className="line-clamp-2" title={card.front}>{card.front}</div>
+                          {card.type === 'Glossary' ? (
+                            <div className="space-y-0.5" title={card.front}>
+                              {card.front ? (
+                                card.front.split('\n').map((line: string, idx: number) => (
+                                  <div key={idx} className={idx === 0 ? "font-bold text-gray-900 dark:text-gray-100 text-sm" : "text-xs text-purple-600 dark:text-purple-400 font-medium"}>
+                                    {line}
+                                  </div>
+                                ))
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="line-clamp-2" title={card.front}>{card.front}</div>
+                          )}
                         </td>
                         <td 
                           className="p-4 text-gray-500 dark:text-gray-400" 
                           onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id })); }}
                         >
-                          <div className="line-clamp-2" title={card.back}>{card.back}</div>
+                          {card.type === 'Glossary' ? (
+                            <div className="space-y-1 text-xs" title={card.back}>
+                              {card.back ? (
+                                card.back.split('\n').map((line: string, idx: number) => (
+                                  <div key={idx} className={idx === 0 ? "text-gray-800 dark:text-gray-200" : "text-gray-500 dark:text-gray-400"}>
+                                    {line}
+                                  </div>
+                                ))
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="line-clamp-2" title={card.back}>{card.back}</div>
+                          )}
                         </td>
                         <td className="p-4" onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id })); }}>
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -361,7 +414,11 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
                               </span>
                             )}
                             {card.type === 'Glossary' && card.label && (
-                              <TaxonomyTagBadge label={card.label} size="xs" />
+                              <div className="flex flex-col gap-1 items-start w-full mt-1">
+                                {card.label.split(',').map((l: string) => (
+                                  <TaxonomyTagBadge key={l} label={l.trim()} size="xs" />
+                                ))}
+                              </div>
                             )}
                             {card.type === 'Ready Versions' && card.label && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 whitespace-nowrap">

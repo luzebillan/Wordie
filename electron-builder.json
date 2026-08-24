@@ -26,6 +26,9 @@
     ],
     "artifactName": "${productName}_${version}.${ext}"
   },
+  "appImage": {
+    "compression": "gzip"
+  },
   "win": {
     "target": [
       {

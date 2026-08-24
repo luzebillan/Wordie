@@ -60,8 +60,10 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
     if (!card) return
     try {
       await window.ipcRenderer.updateCard(card.id, updates)
-      setCard({ ...card, ...updates })
+      const updatedCard = { ...card, ...updates }
+      setCard(updatedCard)
       setIsEditingMode(false)
+      window.dispatchEvent(new CustomEvent('card-updated', { detail: updatedCard }))
       window.dispatchEvent(new Event('stats-updated'))
     } catch (e) {
       console.error(e)
@@ -99,21 +101,75 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
 
     switch (card.type) {
       case 'Useful Expressions':
-        return <div className="text-center text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">{card.front}</div>
+        return (
+          <div className="text-center space-y-2 max-w-xl mx-auto">
+            <div className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">
+              {card.front}
+            </div>
+            {card.sourceContext && (
+              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                {card.sourceContext}
+              </div>
+            )}
+          </div>
+        )
+
       case 'Glossary': {
         const parts = (card.front || '').split('\n')
         return (
-          <div className="text-center space-y-2">
-            <div className="text-3xl font-extrabold text-gray-900 dark:text-white">{parts[0]}</div>
-            {parts[1] && <div className="text-base font-medium text-purple-600 dark:text-purple-400">{parts[1]}</div>}
+          <div className="text-center space-y-1.5 max-w-xl mx-auto">
+            <div className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">
+              {parts[0]}
+            </div>
+            {parts[1] && (
+              <div className="text-base font-semibold text-purple-600 dark:text-purple-400">
+                {parts[1]}
+              </div>
+            )}
           </div>
         )
       }
+
+      case 'Daily Words': {
+        const imageSrc = card.imageUrl ? (card.imageUrl.startsWith('http') ? card.imageUrl : `local-asset://${card.imageUrl}`) : null
+        return (
+          <div className="text-center space-y-3 max-w-xl mx-auto">
+            {imageSrc && (
+              <div className="flex justify-center">
+                <img
+                  src={imageSrc}
+                  alt={card.front}
+                  className="max-h-40 max-w-xs object-contain rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm"
+                />
+              </div>
+            )}
+            <div className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">
+              {card.front}
+            </div>
+            {card.sourceContext && (
+              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                {card.sourceContext}
+              </div>
+            )}
+          </div>
+        )
+      }
+
       case 'Ready Versions':
-        return <div className="text-left text-lg leading-relaxed text-gray-800 dark:text-gray-200">{card.front}</div>
-      case 'Daily Words':
+        return (
+          <div className="text-center space-y-2 max-w-xl mx-auto">
+            <div className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-relaxed">
+              {card.front}
+            </div>
+          </div>
+        )
+
       default:
-        return <div className="text-center text-3xl font-extrabold text-gray-900 dark:text-white">{card.front}</div>
+        return (
+          <div className="text-center text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">
+            {card.front}
+          </div>
+        )
     }
   }
 
@@ -122,32 +178,50 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
 
     switch (card.type) {
       case 'Useful Expressions':
-        return <div className="text-center text-xl text-gray-700 dark:text-gray-300 font-medium">{card.back}</div>
+        return (
+          <div className="text-center text-xl text-gray-800 dark:text-gray-200 font-medium leading-relaxed max-w-xl mx-auto">
+            {card.back}
+          </div>
+        )
+
       case 'Glossary': {
         const parts = (card.back || '').split('\n')
         return (
-          <div className="text-center space-y-3 w-full max-w-xl mx-auto">
-            {parts[0] && <div className="text-lg font-semibold text-gray-800 dark:text-gray-200">{parts[0]}</div>}
-            {parts[1] && <div className="text-sm italic text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-black/20 p-3 rounded-xl">{parts[1]}</div>}
+          <div className="text-center space-y-2.5 w-full max-w-xl mx-auto">
+            {parts[0] && (
+              <div className="text-lg font-semibold text-gray-800 dark:text-gray-200 leading-relaxed">
+                {parts[0]}
+              </div>
+            )}
+            {parts[1] && (
+              <div className="text-sm text-gray-600 dark:text-gray-300 bg-white/70 dark:bg-black/25 p-3 rounded-xl border border-purple-100/60 dark:border-purple-900/30 leading-relaxed">
+                {parts[1]}
+              </div>
+            )}
           </div>
         )
       }
+
       case 'Ready Versions': {
         const sentences = (card.back || '').split('\n').filter(Boolean)
         return (
-          <div className="space-y-3 text-left w-full">
+          <div className="text-center space-y-2 w-full max-w-xl mx-auto">
             {sentences.map((sentence: string, index: number) => (
-              <div key={index} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <span className="text-purple-500 font-bold">•</span>
-                <span>{sentence}</span>
+              <div key={index} className="text-lg text-gray-800 dark:text-gray-200 font-medium leading-relaxed">
+                {sentence}
               </div>
             ))}
           </div>
         )
       }
+
       case 'Daily Words':
       default:
-        return <div className="text-center text-2xl font-bold text-gray-800 dark:text-gray-200">{card.back}</div>
+        return (
+          <div className="text-center text-xl md:text-2xl font-bold text-gray-800 dark:text-gray-200 leading-relaxed max-w-xl mx-auto">
+            {card.back}
+          </div>
+        )
     }
   }
 
@@ -173,21 +247,32 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
                 </button>
                 
                 {card && (
-                  <div className="flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    <span className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-xs font-bold uppercase tracking-wider">
                       {card.type}
                     </span>
-                    {card.type === 'Useful Expressions' && card.style ? (
-                      <span className="text-gray-400 font-normal">• {card.style}</span>
-                    ) : card.type === 'Glossary' && card.label ? (
-                      <div className="flex items-center gap-1">
+                    {card.type === 'Useful Expressions' && card.style && (
+                      <span className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-semibold">
+                        {card.style}
+                      </span>
+                    )}
+                    {card.type === 'Glossary' && card.label && (
+                      <div className="flex items-center gap-1 flex-wrap">
                         {card.label.split(',').map((l: string) => (
                           <TaxonomyTagBadge key={l} label={l.trim()} size="xs" />
                         ))}
                       </div>
-                    ) : card.label && card.label !== 'Vocabulary' ? (
-                      <span className="text-gray-400 font-normal">• {card.label}</span>
-                    ) : null}
+                    )}
+                    {card.type === 'Ready Versions' && card.label && (
+                      <span className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-semibold">
+                        {card.label}
+                      </span>
+                    )}
+                    {card.type === 'Daily Words' && card.imageUrl && (
+                      <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-medium">
+                        Image Word
+                      </span>
+                    )}
                   </div>
                 )}
               </>
