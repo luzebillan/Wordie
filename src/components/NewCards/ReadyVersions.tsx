@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Save } from 'lucide-react'
+import { Save, Eraser } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 import { useSimilarCards } from '../../hooks/useSimilarCards'
 import { useShortcuts } from '../../hooks/useShortcuts'
@@ -57,12 +57,23 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
     }
   }
 
+  const handleClear = () => {
+    setFront('')
+    setBack('')
+    setLabel(TYPES[0])
+    setError('')
+    reset()
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!containerRef.current || containerRef.current.offsetParent === null) return
       if (isActionPressed('card.submit', e)) {
         e.preventDefault()
         handleSave()
+      } else if (isActionPressed('card.clear', e)) {
+        e.preventDefault()
+        handleClear()
       }
     }
 
@@ -102,7 +113,7 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
             onChange={e => {
               const val = e.target.value
               setFront(val)
-              setSearchQuery(val)
+              setSearchQuery(val || back)
             }}
             className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
             placeholder="Enter Chinese"
@@ -116,14 +127,18 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
           <input
             type="text"
             value={back}
-            onChange={e => setBack(e.target.value)}
+            onChange={e => {
+              const val = e.target.value
+              setBack(val)
+              setSearchQuery(val || front)
+            }}
             className="w-full p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm"
             placeholder="Enter English"
           />
         </div>
 
-        {/* Save */}
-        <div className="flex justify-start pb-8">
+        {/* Save & Clear */}
+        <div className="flex items-center gap-3 justify-start pb-8">
           <button
             onClick={handleSave}
             disabled={!front || !back}
@@ -132,6 +147,16 @@ export const ReadyVersions: React.FC<ReadyVersionsProps> = ({ onNavigate, onUpda
             <Save className="w-4 h-4" />
             Save
             <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={!front && !back && label === TYPES[0]}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            title={`Clear form (${getShortcutDisplay('card.clear')})`}
+          >
+            <Eraser className="w-4 h-4" />
+            Clear
           </button>
         </div>
       </div>

@@ -63,7 +63,7 @@ export const settingsRepo = {
           front: card.front,
           back: card.back,
           style: card.style || null,
-          label: card.label || null,
+          label: card.label ? String(card.label).replace(/\\/g, '/') : null,
           imageUrl: card.imageUrl || null,
           sourceContext: card.sourceContext || null,
           useCount: card.useCount || 0,

@@ -66,6 +66,13 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     defaultKey: 'Ctrl+Enter'
   },
   {
+    id: 'card.clear',
+    category: 'card',
+    name: 'Clear Form Inputs',
+    description: 'Clear all input fields in the current card form',
+    defaultKey: 'Alt+Delete'
+  },
+  {
     id: 'card.new',
     category: 'card',
     name: 'Quick New Card',
@@ -144,6 +151,7 @@ export function normalizeKey(key: string): string {
   if (trimmed.toLowerCase() === 'enter' || trimmed.toLowerCase() === 'return') return 'Enter'
   if (trimmed.toLowerCase() === 'tab') return 'Tab'
   if (trimmed.toLowerCase() === 'backspace') return 'Backspace'
+  if (trimmed.toLowerCase() === 'delete' || trimmed.toLowerCase() === 'del') return 'Delete'
   if (trimmed.toLowerCase() === 'arrowup' || trimmed.toLowerCase() === 'up') return 'ArrowUp'
   if (trimmed.toLowerCase() === 'arrowdown' || trimmed.toLowerCase() === 'down') return 'ArrowDown'
   if (trimmed.toLowerCase() === 'arrowleft' || trimmed.toLowerCase() === 'left') return 'ArrowLeft'

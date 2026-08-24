@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react'
 import * as Prompts from '../constants/prompts'
 import { SHORTCUT_CATEGORIES, SHORTCUT_DEFINITIONS, DEFAULT_SHORTCUTS, parseKeyboardEvent, formatShortcutDisplay } from '../utils/shortcuts'
 import wordieLogo from '../assets/icon.png'
+import { GlossaryTaxonomyManager } from './GlossaryTaxonomyManager'
+import { Modal, ModalHeader, ModalBody } from './ui/Modal'
+import { useGlossaryTaxonomy } from '../hooks/useGlossaryTaxonomy'
+import { Layers, Settings2 } from 'lucide-react'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -9,7 +13,8 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'data' | 'advanced' | 'prompts' | 'shortcuts' | 'about'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'prompts' | 'shortcuts' | 'taxonomy' | 'data' | 'advanced' | 'about'>('general')
+  const { taxonomy, counts } = useGlossaryTaxonomy()
   
   // General State
   const [showSplash, setShowSplash] = useState(true)
@@ -87,6 +92,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         showToast(`Update failed: ${info.message}`, 'error')
       })
     }
+  }, [])
+
+  useEffect(() => {
+    const handleOpenTaxonomy = () => {
+      setActiveTab('taxonomy')
+    }
+    window.addEventListener('open-settings-taxonomy', handleOpenTaxonomy)
+    return () => window.removeEventListener('open-settings-taxonomy', handleOpenTaxonomy)
   }, [])
 
   const handleUpdateAction = async () => {
@@ -301,31 +314,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type } }))
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-[80vw] min-w-[700px] max-w-[950px] h-[75vh] min-h-[500px] max-h-[700px] flex flex-col overflow-hidden bg-white/80 dark:bg-[#1f2028]/90 backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] transition-all transform scale-100 animate-in zoom-in-95 duration-200">
-        
-        {/* Header */}
-        <div className="px-6 py-5 border-b border-gray-200/50 dark:border-gray-700/50 flex justify-between items-center shrink-0">
-          <h2 className="text-2xl font-semibold bg-gradient-to-r from-purple-600 to-blue-500 bg-clip-text text-transparent">Settings</h2>
+    <Modal isOpen={isOpen} onClose={onClose} size="xl" className="h-[82vh] max-h-[760px]">
+      <ModalHeader title="Settings" onClose={onClose} />
+      <ModalBody noPadding className="flex flex-1 overflow-hidden min-h-0">
+        {/* Tabs */}
+        <div className="w-56 bg-gray-50/50 dark:bg-black/20 border-r border-gray-200/60 dark:border-gray-800 p-4 space-y-1.5 overflow-y-auto shrink-0 scrollbar-thin">
           <button 
-            onClick={onClose}
-            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex flex-1 overflow-hidden">
-          {/* Tabs */}
-          <div className="w-56 bg-gray-50/30 dark:bg-black/10 border-r border-gray-200/50 dark:border-gray-700/50 p-4 space-y-2 overflow-y-auto shrink-0">
-            <button 
-              onClick={() => setActiveTab('general')}
-              className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            onClick={() => setActiveTab('general')}
+            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'general' 
                   ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
                   : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
@@ -364,6 +361,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               Shortcuts
             </button>
             <button 
+              onClick={() => { setActiveTab('taxonomy'); setRecordingActionId(null); }}
+              className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'taxonomy' 
+                  ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Glossary Taxonomy
+            </button>
+            <button 
               onClick={() => { setActiveTab('advanced'); setRecordingActionId(null); }}
               className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'advanced' 
@@ -396,7 +403,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
 
             {/* Tab Content */}
-          <div className="flex-1 p-6 overflow-y-auto">
+          <div className={activeTab === 'taxonomy' ? "flex-1 p-4 overflow-hidden flex flex-col min-h-0" : "flex-1 p-6 overflow-y-auto scrollbar-thin"}>
             {activeTab === 'general' ? (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50/50 dark:bg-black/20 border border-gray-200/50 dark:border-gray-700/50">
@@ -900,13 +907,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     )
                   })}
                 </div>
+              ) : activeTab === 'taxonomy' ? (
+                <div className="h-full overflow-hidden animate-in fade-in duration-200">
+                  <GlossaryTaxonomyManager />
+                </div>
               ) : null}
             </div>
-          </div>
-
-        {/* Footer removed per user requirement: no Cancel/Save buttons */}
-
-      </div>
-    </div>
+      </ModalBody>
+    </Modal>
   )
 }

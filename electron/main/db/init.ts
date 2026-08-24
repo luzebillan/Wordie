@@ -125,8 +125,21 @@ export function initDB() {
   // Future migrations can go here:
   // if (currentVersion === 1) { ... db.pragma('user_version = 2'); currentVersion = 2; }
 
-  // Async migration for vectors
-  migrateVectors();
+  // Auto-migrate legacy backslashes '\' in cards.label to POSIX '/'
+  try {
+    const hasLegacyBackslashes = db.prepare("SELECT 1 FROM cards WHERE label LIKE '%\\%' LIMIT 1").get();
+    if (hasLegacyBackslashes) {
+      db.transaction(() => {
+        db.exec("UPDATE cards SET label = REPLACE(label, '\\', '/') WHERE label LIKE '%\\%'");
+      })();
+      console.log("[DB Migration] Converted legacy backslashes to POSIX slashes in cards.label.");
+    }
+  } catch (e) {
+    console.error("[DB Migration] Backslash to slash migration check skipped/failed:", e);
+  }
+
+  // Trigger vector migration asynchronously
+  migrateVectors().catch(console.error);
 }
 
 async function migrateVectors() {

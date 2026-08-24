@@ -1,11 +1,23 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
-import { Search, Trash2, Library as LibraryIcon, Filter, MoreHorizontal, Edit3, RotateCcw, Grid, List, CheckSquare, Square, X } from 'lucide-react'
+import { Trash2, Library as LibraryIcon, MoreHorizontal, Edit3, RotateCcw, Grid, List, CheckSquare, Square, X } from 'lucide-react'
+import {
+  type CardFilterState,
+  DEFAULT_FILTER_STATE,
+  filterAndSortCards,
+  computeStatusCounts
+} from '../utils/searchFilter'
+import { AdvancedFilterBar } from '../components/AdvancedFilterBar'
+import { TaxonomyTagBadge } from '../components/TaxonomyTagBadge'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 
-export const Library: React.FC = () => {
+interface LibraryProps {
+  onNavigate?: (view: string, props?: any) => void
+}
+
+export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
   const [cards, setCards] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedType, setSelectedType] = useState<string>('All')
+  const [filters, setFilters] = useState<CardFilterState>(DEFAULT_FILTER_STATE)
   
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -24,8 +36,6 @@ export const Library: React.FC = () => {
     window.addEventListener('mousedown', handleClickOutside)
     return () => window.removeEventListener('mousedown', handleClickOutside)
   }, [])
-  
-  const cardTypes = ['All', 'Useful Expressions', 'Glossary', 'Daily Words', 'Ready Versions']
 
   const fetchCards = async () => {
     setIsLoading(true)
@@ -73,7 +83,6 @@ export const Library: React.FC = () => {
           return next
         })
         
-        // Dispatch events for each so other components know (or just a generic update)
         window.dispatchEvent(new Event('stats-updated'))
       }
     } catch (error) {
@@ -96,16 +105,26 @@ export const Library: React.FC = () => {
     }
   }
 
+  const availableLabels = useMemo(() => {
+    const labels = new Set<string>()
+    for (const card of cards) {
+      if (card.label) {
+        card.label.split(',').forEach((l: string) => {
+          const trimmed = l.trim()
+          if (trimmed) labels.add(trimmed)
+        })
+      }
+    }
+    return Array.from(labels).sort()
+  }, [cards])
+
+  const statusCounts = useMemo(() => {
+    return computeStatusCounts(cards)
+  }, [cards])
+
   const filteredCards = useMemo(() => {
-    return cards.filter(card => {
-      const matchesType = selectedType === 'All' || card.type === selectedType
-      const query = searchQuery.toLowerCase().trim()
-      const matchesSearch = !query || 
-        (card.front && card.front.toLowerCase().includes(query)) || 
-        (card.back && card.back.toLowerCase().includes(query))
-      return matchesType && matchesSearch
-    })
-  }, [cards, selectedType, searchQuery])
+    return filterAndSortCards(cards, filters)
+  }, [cards, filters])
 
   const toggleSelection = (id: number) => {
     const next = new Set(selectedIds)
@@ -149,89 +168,72 @@ export const Library: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col animate-in fade-in duration-300">
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400">
+      {/* Header Bar */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400 shadow-sm">
             <LibraryIcon className="w-5 h-5" />
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Card Library</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Manage all your {cards.length} cards
+              Total {cards.length} cards · {filteredCards.length} matching filters
             </p>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 mt-6">
-          <div className="relative flex-1">
-            <Search className="h-5 w-5 absolute left-3 top-2.5 text-gray-400" />
-            <input 
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search in front and back..."
-              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl text-sm outline-none transition-all dark:text-gray-200 placeholder:text-gray-400 shadow-sm"
-            />
+        <div className="flex items-center bg-gray-50 dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl p-1 shadow-sm">
+          <button 
+            onClick={() => setViewMode('grid')}
+            className={`p-1.5 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-gray-800 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+            title="Grid View"
+          >
+            <Grid className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={() => setViewMode('table')}
+            className={`p-1.5 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-gray-800 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+            title="Table View"
+          >
+            <List className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Advanced Filter & Search Bar */}
+      <AdvancedFilterBar
+        filters={filters}
+        onFilterChange={setFilters}
+        statusCounts={statusCounts}
+        availableLabels={availableLabels}
+        filteredCount={filteredCards.length}
+      />
+        
+      {/* Bulk Action Toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-900/50 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSelectedIds(new Set())} className="p-1 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded-lg transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+            <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">{selectedIds.size} card{selectedIds.size > 1 ? 's' : ''} selected</span>
           </div>
-          <div className="relative shrink-0 flex items-center gap-3">
-            <div className="relative">
-              <Filter className="h-4 w-4 absolute left-3 top-2.5 text-gray-400" />
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                className="pl-9 pr-8 py-2.5 bg-gray-50 dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl text-sm outline-none transition-all dark:text-gray-200 shadow-sm appearance-none cursor-pointer font-medium"
-              >
-                {cardTypes.map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="flex items-center bg-gray-50 dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl p-1 shadow-sm">
-              <button 
-                onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-gray-800 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
-                title="Grid View"
-              >
-                <Grid className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => setViewMode('table')}
-                className={`p-1.5 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-gray-800 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
-                title="Table View"
-              >
-                <List className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleBulkReset}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-yellow-600 bg-yellow-100 hover:bg-yellow-200 dark:text-yellow-400 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 rounded-lg transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" /> Reset Progress
+            </button>
+            <button 
+              onClick={() => setCardsToDelete(Array.from(selectedIds))}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-100 hover:bg-red-200 dark:text-red-400 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-lg transition-colors"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
           </div>
         </div>
-        
-        {/* Bulk Action Toolbar */}
-        {selectedIds.size > 0 && (
-          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-900/50 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setSelectedIds(new Set())} className="p-1 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded-lg transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-              <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">{selectedIds.size} card{selectedIds.size > 1 ? 's' : ''} selected</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={handleBulkReset}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-yellow-600 bg-yellow-100 hover:bg-yellow-200 dark:text-yellow-400 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 rounded-lg transition-colors"
-              >
-                <RotateCcw className="w-4 h-4" /> Reset Progress
-              </button>
-              <button 
-                onClick={() => setCardsToDelete(Array.from(selectedIds))}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-100 hover:bg-red-200 dark:text-red-400 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-lg transition-colors"
-              >
-                <Trash2 className="w-4 h-4" /> Delete
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="flex-1 overflow-y-auto pr-4 pb-8">
         {isLoading ? (
@@ -282,9 +284,7 @@ export const Library: React.FC = () => {
                           </div>
                         )}
                         {card.type === 'Glossary' && card.label && (
-                          <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider max-w-[120px] truncate" title={card.label}>
-                            {card.label}
-                          </div>
+                          <TaxonomyTagBadge label={card.label} size="xs" />
                         )}
                         {card.type === 'Ready Versions' && card.label && (
                           <div className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded font-semibold uppercase tracking-wider">
@@ -361,9 +361,7 @@ export const Library: React.FC = () => {
                               </span>
                             )}
                             {card.type === 'Glossary' && card.label && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 whitespace-nowrap max-w-[140px] truncate" title={card.label}>
-                                {card.label}
-                              </span>
+                              <TaxonomyTagBadge label={card.label} size="xs" />
                             )}
                             {card.type === 'Ready Versions' && card.label && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 whitespace-nowrap">
@@ -394,43 +392,28 @@ export const Library: React.FC = () => {
           <div className="flex flex-col items-center justify-center h-64 bg-white/50 dark:bg-[#1f2028]/50 rounded-3xl border border-gray-200 dark:border-gray-800 border-dashed">
             <LibraryIcon className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
             <p className="text-gray-500 dark:text-gray-400 font-medium">No cards found matching your criteria.</p>
-            {(searchQuery || selectedType !== 'All') && (
+            {filters !== DEFAULT_FILTER_STATE && (
               <button 
-                onClick={() => { setSearchQuery(''); setSelectedType('All'); }}
+                onClick={() => setFilters(DEFAULT_FILTER_STATE)}
                 className="mt-4 text-purple-600 dark:text-purple-400 text-sm font-medium hover:underline"
               >
-                Clear filters
+                Reset all filters
               </button>
             )}
           </div>
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
-      {cardsToDelete.length > 0 && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-[#1f2028] p-6 rounded-2xl w-full max-w-sm shadow-2xl border border-gray-200 dark:border-gray-800 animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete {cardsToDelete.length > 1 ? `${cardsToDelete.length} Cards` : 'Card'}?</h3>
-            <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
-              This action cannot be undone. Are you sure you want to permanently delete {cardsToDelete.length > 1 ? 'these cards' : 'this card'}?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button 
-                onClick={() => setCardsToDelete([])}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleDeleteConfirm}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg shadow-sm shadow-red-500/20 transition-colors"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={cardsToDelete.length > 0}
+        title={cardsToDelete.length > 1 ? `Delete ${cardsToDelete.length} Cards?` : 'Delete Card?'}
+        message={`This action cannot be undone. Are you sure you want to permanently delete ${cardsToDelete.length > 1 ? 'these cards' : 'this card'}?`}
+        confirmText="Delete"
+        variant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setCardsToDelete([])}
+      />
 
       {/* Context Menu */}
       {contextMenu && (

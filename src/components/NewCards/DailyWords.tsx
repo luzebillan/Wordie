@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Save } from 'lucide-react'
+import { Save, Eraser } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 import { useSimilarCards } from '../../hooks/useSimilarCards'
 import { useShortcuts } from '../../hooks/useShortcuts'
@@ -27,7 +27,6 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
     isAnalyzing,
     toastMessage,
     setSearchQuery,
-    triggerSemanticSearch,
     handleIncrementReviewCount,
     reset
   } = useSimilarCards({ cardType: 'Daily Words' })
@@ -49,7 +48,9 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       const res = await window.ipcRenderer.generateDailyWord(payload)
       if (res.success && res.result) {
         setBack(res.result)
-        await triggerSemanticSearch(front || '[Image Only]', res.result, 'Daily Words', context)
+        if (!front.trim()) {
+          setSearchQuery(res.result)
+        }
       } else {
         setError(res.error || 'Failed to generate explanation.')
       }
@@ -139,6 +140,16 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
     }
   }
 
+  const handleClear = () => {
+    if (isGenerating || isCaching) return
+    setFront('')
+    setContext('')
+    setImageUrl('')
+    setBack('')
+    setError('')
+    reset()
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!containerRef.current || containerRef.current.offsetParent === null) return
@@ -150,12 +161,15 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
         } else {
           handleSave()
         }
+      } else if (isActionPressed('card.clear', e)) {
+        e.preventDefault()
+        handleClear()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [front, context, imageUrl, back, isGenerating, isActionPressed])
+  }, [front, context, imageUrl, back, isGenerating, isCaching, isActionPressed])
 
   return (
     <div ref={containerRef} className="flex h-full animate-in fade-in duration-500">
@@ -252,14 +266,20 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
           
           <textarea
             value={back}
-            onChange={e => setBack(e.target.value)}
+            onChange={e => {
+              const val = e.target.value
+              setBack(val)
+              if (!front.trim()) {
+                setSearchQuery(val)
+              }
+            }}
             disabled={isGenerating}
             className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
             placeholder="Find English Counterparts (or type your own version)"
           />
         </div>
 
-        <div className="flex justify-start pb-8">
+        <div className="flex items-center gap-3 justify-start pb-8">
           <button
             onClick={handleSave}
             disabled={(!front.trim() && !imageUrl.trim()) || !back.trim() || isGenerating}
@@ -268,6 +288,16 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
             <Save className="w-4 h-4" />
             Save
             {back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>}
+          </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={isGenerating || isCaching || (!front && !context && !imageUrl && !back)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            title={`Clear form (${getShortcutDisplay('card.clear')})`}
+          >
+            <Eraser className="w-4 h-4" />
+            Clear
           </button>
         </div>
       </div>

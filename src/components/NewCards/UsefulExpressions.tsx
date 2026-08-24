@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Save } from 'lucide-react'
+import { Save, Eraser } from 'lucide-react'
 import { FuzzyMatchList } from './FuzzyMatchList'
 import { useSimilarCards } from '../../hooks/useSimilarCards'
 import { useShortcuts } from '../../hooks/useShortcuts'
@@ -87,6 +87,16 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
     }
   }
 
+  const handleClear = () => {
+    if (isGenerating) return
+    setContext('')
+    setFront('')
+    setBack('')
+    setStyle('General')
+    setError('')
+    reset()
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!containerRef.current || containerRef.current.offsetParent === null) return
@@ -98,6 +108,9 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
         } else {
           handleSave()
         }
+      } else if (isActionPressed('card.clear', e)) {
+        e.preventDefault()
+        handleClear()
       }
     }
 
@@ -165,7 +178,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
                   <path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z" />
                 </svg>
                 {isGenerating ? 'Generating...' : 'Back Side'}
-                {!back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">(Ctrl+↵)</span>}
+                {!back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>}
               </button>
               {error && <span className="text-red-500 text-sm">{error}</span>}
             </div>
@@ -179,7 +192,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
             />
           </div>
 
-          <div className="flex justify-start pb-8">
+          <div className="flex items-center gap-3 justify-start pb-8">
             <button
               onClick={handleSave}
               disabled={!front || !back || isGenerating}
@@ -188,6 +201,16 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
               <Save className="w-4 h-4" />
               Save
               {back.trim() && <span className="text-xs opacity-75 font-normal ml-0.5">({getShortcutDisplay('card.submit')})</span>}
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={isGenerating || (!context && !front && !back && style === 'General')}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={`Clear form (${getShortcutDisplay('card.clear')})`}
+            >
+              <Eraser className="w-4 h-4" />
+              Clear
             </button>
           </div>
         </div>

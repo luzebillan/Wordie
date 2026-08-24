@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   getCard: (id: number) => ipcRenderer.invoke('get-card', id),
   deleteCard: (id: number) => ipcRenderer.invoke('delete-card', id),
   deleteCards: (ids: number[]) => ipcRenderer.invoke('delete-cards', ids),
-  searchCards: (query: string, type?: string) => ipcRenderer.invoke('search-cards', { query, type }),
+  searchCards: (query: string, type?: string, limit?: number) => ipcRenderer.invoke('search-cards', { query, type, limit }),
   findSimilarCards: (front: string, back: string = '', type?: string, useLLM?: boolean, context: string = '') => ipcRenderer.invoke('find-similar-cards', { front, back, type, useLLM, context }),
   incrementUseCount: (id: number) => ipcRenderer.invoke('increment-use-count', id),
   incrementEncounterCount: (id: number) => ipcRenderer.invoke('increment-encounter-count', id),
@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   getRevisionStats: () => ipcRenderer.invoke('get-revision-stats'),
   getStats: () => ipcRenderer.invoke('get-stats'),
   getStatsByType: (type: string) => ipcRenderer.invoke('get-stats-by-type', type),
+  getTaxonomyCounts: () => ipcRenderer.invoke('get-taxonomy-counts'),
+  migrateGlossaryDomain: (payload: { oldDomain: string; action: 'rename' | 'transfer' | 'uncategorized' | 'detach'; targetDomain?: string; newDomainName?: string }) => ipcRenderer.invoke('migrate-glossary-domain', payload),
+  migrateGlossaryField: (payload: { domain: string; oldField: string; action: 'rename' | 'merge' | 'detach'; newFieldName?: string; mergeTargetField?: string }) => ipcRenderer.invoke('migrate-glossary-field', payload),
+  getOrphanedGlossaryTags: (validTaxonomyTags: string[]) => ipcRenderer.invoke('get-orphaned-glossary-tags', validTaxonomyTags),
+  batchMigrateGlossaryTags: (mappings: Record<string, string | null>) => ipcRenderer.invoke('batch-migrate-glossary-tags', mappings),
   
   // Data APIs
   exportData: () => ipcRenderer.invoke('export-data'),

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, Sparkles, Loader2 } from 'lucide-react';
 import type { SimilarityMode } from '../../hooks/useSimilarCards';
+import { TaxonomyTagBadge } from '../TaxonomyTagBadge';
 
 interface FuzzyMatchListProps {
   similarCards: any[];
@@ -123,9 +124,7 @@ export const FuzzyMatchList: React.FC<FuzzyMatchListProps> = ({
                         </span>
                       )}
                       {card.type === 'Glossary' && card.label && (
-                        <span className="text-[9px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded shrink-0 font-semibold max-w-[90px] truncate" title={card.label}>
-                          {card.label}
-                        </span>
+                        <TaxonomyTagBadge label={card.label} size="xs" />
                       )}
                       {card.type === 'Ready Versions' && card.label && (
                         <span className="text-[9px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded shrink-0 font-semibold">

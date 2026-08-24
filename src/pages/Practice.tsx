@@ -262,7 +262,7 @@ const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) =
 }
 
 const AiVersion: React.FC<{ onComplete: () => void, onOpenNewCard: () => void }> = ({ onComplete, onOpenNewCard }) => {
-  const { isActionPressed } = useShortcuts()
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
   const [inputText, setInputText] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [resultText, setResultText] = useState('')
@@ -342,7 +342,7 @@ const AiVersion: React.FC<{ onComplete: () => void, onOpenNewCard: () => void }>
             className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-sm font-bold shadow-lg hover:scale-105 transition-transform"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><line x1="12" x2="12" y1="8" y2="16"></line><line x1="8" x2="16" y1="12" y2="12"></line></svg>
-            New Cards (Ctrl+N)
+            New Cards ({getShortcutDisplay('card.new')})
           </button>
         </div>
       </div>

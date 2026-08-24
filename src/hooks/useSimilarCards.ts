@@ -39,7 +39,7 @@ export function useSimilarCards({ cardType, debounceMs = 300 }: UseSimilarCardsO
     setIsSearching(true)
     searchTimerRef.current = setTimeout(async () => {
       try {
-        const results = await window.ipcRenderer.searchCards(trimmed, cardType)
+        const results = await window.ipcRenderer.searchCards(trimmed, cardType, 15)
         // Ensure we only update if query hasn't changed in the meantime
         if (queryRef.current.trim() === trimmed) {
           setSimilarCards(results || [])

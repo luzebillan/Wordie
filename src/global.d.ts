@@ -5,7 +5,7 @@ interface Window {
     getCard: (id: number) => Promise<any>
     deleteCard: (id: number) => Promise<{success: boolean; error?: string}>
     deleteCards: (ids: number[]) => Promise<{success: boolean; error?: string}>
-    searchCards: (query: string, type?: string) => Promise<any[]>
+    searchCards: (query: string, type?: string, limit?: number) => Promise<any[]>
     findSimilarCards: (front: string, back?: string, type?: string, useLLM?: boolean, context?: string) => Promise<any[]>
     incrementUseCount: (id: number) => Promise<void>
     incrementEncounterCount: (id: number) => Promise<void>
@@ -21,6 +21,11 @@ interface Window {
     getStatsByType: (type: string) => Promise<{ cardsReviewed: number; cardsToReview: number }>
     getRevisionStats: () => Promise<{ memorized: number; forgotten: number; toReview: number }>
     undoReview: () => Promise<{ success: boolean; error?: string }>
+    getTaxonomyCounts: () => Promise<{ success: boolean; domainCounts: Record<string, number>; fieldCounts: Record<string, number>; totalGlossaryCards: number; error?: string }>
+    migrateGlossaryDomain: (payload: { oldDomain: string; action: 'rename' | 'transfer' | 'uncategorized' | 'detach'; targetDomain?: string; newDomainName?: string }) => Promise<{ success: boolean; affectedCount?: number; error?: string }>
+    migrateGlossaryField: (payload: { domain: string; oldField: string; action: 'rename' | 'merge' | 'detach'; newFieldName?: string; mergeTargetField?: string }) => Promise<{ success: boolean; affectedCount?: number; error?: string }>
+    getOrphanedGlossaryTags: (validTaxonomyTags: string[]) => Promise<{ success: boolean; orphans: Record<string, { count: number; sampleTerms: string[] }>; totalOrphanCards: number; error?: string }>
+    batchMigrateGlossaryTags: (mappings: Record<string, string | null>) => Promise<{ success: boolean; affectedCount?: number; error?: string }>
     
     // Data APIs
     exportData: () => Promise<{success: boolean; filePath?: string; count?: number; canceled?: boolean; error?: string}>

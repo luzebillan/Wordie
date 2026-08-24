@@ -14,6 +14,8 @@ import {
   createSessionItem
 } from '../utils/revisionSession'
 import { useShortcuts } from '../hooks/useShortcuts'
+import { TaxonomyTagBadge } from '../components/TaxonomyTagBadge'
+import { getActiveModalCount } from '../components/ui/Modal'
 
 interface RevisionProps {
   specificCardId?: number
@@ -426,7 +428,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
         return // Ignore shortcuts when typing
       }
       // Ignore shortcuts if a modal dialog is active
-      const isModalOpen = !!document.querySelector('.fixed.z-\\[100\\], .fixed.z-\\[101\\], [role="dialog"]')
+      const isModalOpen = getActiveModalCount() > 0 || !!document.querySelector('[role="dialog"]')
       if (isModalOpen) return
 
       if (isActionPressed('revision.flip', e)) {
@@ -518,7 +520,9 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
 
         return (
           <div className="text-center">
-            <div className="text-sm text-purple-500 font-bold mb-4 uppercase tracking-widest">{glossaryTag}</div>
+            <div className="mb-4">
+              <TaxonomyTagBadge label={glossaryTag} size="sm" />
+            </div>
             <div className="text-3xl font-bold mb-4">{questionTop}</div>
             <div className="text-xl text-gray-500">{questionBottom}</div>
           </div>
@@ -684,9 +688,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
             </span>
           )}
           {currentCard.type === 'Glossary' && currentCard.label && (
-            <span className="text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 px-2 py-0.5 rounded-md font-semibold">
-              {currentCard.label}
-            </span>
+            <TaxonomyTagBadge label={currentCard.label} size="xs" />
           )}
           {currentCard.type === 'Ready Versions' && currentCard.label && (
             <span className="text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 px-2 py-0.5 rounded-md font-semibold">

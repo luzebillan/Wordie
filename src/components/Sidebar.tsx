@@ -51,7 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onOpe
     }
     const timer = setTimeout(() => {
       setIsSearching(true)
-      window.ipcRenderer.searchCards(searchQuery).then(results => {
+      window.ipcRenderer.searchCards(searchQuery, undefined, 15).then(results => {
         setSearchResults(results)
         setIsSearching(false)
       })
