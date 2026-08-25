@@ -21,8 +21,7 @@
   },
   "linux": {
     "target": [
-      "AppImage",
-      "tar.gz"
+      "AppImage"
     ],
     "artifactName": "${productName}_${version}.${ext}"
   },

@@ -3,14 +3,14 @@ name: Release
 on:
   push:
     tags:
-      - 'v*' # Trigger on tags like v1.0.0, v1.1.0-beta, v1.2.0
+      - 'v*' # Trigger on tags like v1.0.0, v1.1.0-beta, v1.2.0, v1.3.2
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }})
+  build-and-release:
+    name: Build & Release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -30,40 +30,26 @@ jobs:
           node-version: 22
           cache: 'npm'
 
+      - name: Cache Electron & Builder Binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
       - name: Install Dependencies
         run: npm install
 
-      - name: Build Release Files
-        run: npm run build -- --publish never
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.os }}
-          path: release/
-          retention-days: 1
-
-  publish-release:
-    name: Publish Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release
-          merge-multiple: true
-
-      - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/**/*.{exe,dmg,zip,AppImage,tar.gz,blockmap,yml}
-          generate_release_notes: true
+      - name: Build and Publish Release
+        run: npm run build -- --publish always
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
