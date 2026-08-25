@@ -149,19 +149,19 @@ const GlossaryEditForm: React.FC<CardEditFormProps> = ({ card, onCancel, onSave 
         {/* 4 Text Fields */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Target Term (正面目标词)</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Target Term</label>
             <input type="text" value={targetTerm} onChange={e => setTargetTerm(e.target.value)} className="w-full p-3.5 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-800 dark:text-gray-200 font-bold text-base" />
           </div>
           <div>
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">English Term (英文术语)</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">English Term</label>
             <input type="text" value={englishTerm} onChange={e => setEnglishTerm(e.target.value)} className="w-full p-3.5 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-800 dark:text-gray-200 font-bold text-base" />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">English Explanation (英文释义)</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">English Explanation</label>
             <textarea value={englishExp} onChange={e => setEnglishExp(e.target.value)} className="w-full p-3.5 h-20 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-800 dark:text-gray-200 resize-none" />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Chinese Explanation (中文释义)</label>
+            <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Chinese Explanation</label>
             <textarea value={chineseExp} onChange={e => setChineseExp(e.target.value)} className="w-full p-3.5 h-20 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-800 dark:text-gray-200 resize-none" />
           </div>
         </div>

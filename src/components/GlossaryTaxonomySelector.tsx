@@ -72,7 +72,7 @@ export const GlossaryTaxonomySelector: React.FC<GlossaryTaxonomySelectorProps> =
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300">
           <Tag className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-          <span>Categories & Tags (领域分类)</span>
+          <span>Categories & Tags</span>
         </label>
 
         <button

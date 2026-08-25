@@ -7,9 +7,9 @@ export interface ShortcutDefinition {
 }
 
 export const SHORTCUT_CATEGORIES = [
-  { id: 'revision', name: 'Revision (复习)' },
-  { id: 'card', name: 'Card Creation & Edit (制卡与编辑)' },
-  { id: 'navigation', name: 'Navigation & Global (全局与导航)' },
+  { id: 'revision', name: 'Revision' },
+  { id: 'card', name: 'Card Creation & Edit' },
+  { id: 'navigation', name: 'Navigation & Global' },
 ] as const
 
 export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [

@@ -409,7 +409,7 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     return {
       success: true,
       result: {
-        text: "Your text is already very well written and doesn't need any changes! (当前文章表达已经非常地道，无需改写)",
+        text: "Your text is already very well written and doesn't need any changes!",
         cards: []
       }
     }
@@ -421,7 +421,7 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     return {
       success: true,
       result: {
-        text: "Your text is already very well written and doesn't need any changes! (当前文章表达已经非常地道，无需改写)",
+        text: "Your text is already very well written and doesn't need any changes!",
         cards: []
       }
     }
@@ -452,7 +452,7 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     return {
       success: true,
       result: {
-        text: "Your text is already very well written and doesn't need any changes! (当前文章表达已经非常地道，无需改写)",
+        text: "Your text is already very well written and doesn't need any changes!",
         cards: []
       }
     }

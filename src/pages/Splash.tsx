@@ -37,7 +37,7 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
     let isMounted = true
 
     const loadData = async () => {
-      // 保证至少显示 800ms，防止界面一闪而过
+      // Ensure at least 800ms display to prevent UI flashing
       const minDelay = new Promise(resolve => setTimeout(resolve, 800))
       const statsFetch = window.ipcRenderer?.getStats 
         ? window.ipcRenderer.getStats() 
@@ -48,17 +48,17 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
       if (!isMounted) return
       setStats(fetchedStats)
       
-      // 展开数据概览 (Stage 2)
+      // Expand stats overview (Stage 2)
       setStage(2)
       
-      // 给用户 1.5s 时间阅读数字
+      // Allow 1.5s for user to read stats
       setTimeout(() => {
         if (!isMounted) return
-        setStage(3) // 整体退场动画
+        setStage(3) // Exit animation
         setTimeout(() => {
           if (!isMounted) return
           onFinish()
-        }, 500) // 等待 500ms 退场动画完成
+        }, 500) // Wait 500ms for exit animation to complete
       }, 1500)
     }
 
@@ -82,7 +82,7 @@ export const Splash: React.FC<SplashProps> = ({ onFinish }) => {
           </p>
         </div>
 
-        {/* 数据面板，使用 grid 行高过渡来实现完美的流式展开，拉大间距避免紧贴 */}
+        {/* Stats card with smooth grid height transition */}
         <div className={`grid transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] ${stage >= 2 ? 'grid-rows-[1fr] opacity-100 mt-16' : 'grid-rows-[0fr] opacity-0 mt-0'}`}>
           <div className="overflow-hidden">
             <div className={`transition-all duration-700 delay-100 ${stage >= 2 ? 'translate-y-0' : 'translate-y-8'}`}>

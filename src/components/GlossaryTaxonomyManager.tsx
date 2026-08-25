@@ -382,7 +382,7 @@ export const GlossaryTaxonomyManager: React.FC<GlossaryTaxonomyManagerProps> = (
         {/* Left Column: Domains (Level 1) */}
         <div className="w-72 border-r border-gray-200/70 dark:border-gray-800 flex flex-col bg-gray-50/40 dark:bg-black/20 shrink-0">
           <div className="p-3.5 border-b border-gray-200/60 dark:border-gray-800 flex items-center justify-between shrink-0">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Categories (一级分类)</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Categories</span>
             <span className="text-[11px] text-gray-400 font-medium">{taxonomy.length} total</span>
           </div>
 
@@ -724,7 +724,7 @@ export const GlossaryTaxonomyManager: React.FC<GlossaryTaxonomyManagerProps> = (
 
             <div className="space-y-2.5 mb-5">
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Target Category (一级分类)</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Target Category</label>
                 <select
                   value={selectedRemapDomain}
                   onChange={e => {
@@ -742,7 +742,7 @@ export const GlossaryTaxonomyManager: React.FC<GlossaryTaxonomyManagerProps> = (
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Target Field (二级分类 - 可选)</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">Target Field (Optional)</label>
                 <select
                   value={selectedRemapField}
                   onChange={e => setSelectedRemapField(e.target.value)}

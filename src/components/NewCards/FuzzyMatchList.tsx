@@ -88,13 +88,13 @@ export const FuzzyMatchList: React.FC<FuzzyMatchListProps> = ({
             {similarCards.map((card) => (
               <div
                 key={card.id}
-                className="bg-white dark:bg-[#1f2028] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700/80 cursor-pointer hover:border-purple-300 dark:hover:border-purple-700/60 transition-all flex flex-col overflow-hidden group"
+                className="bg-white dark:bg-[#1f2028] rounded-xl shadow-2xs border border-gray-200 dark:border-gray-700/80 cursor-pointer hover:border-purple-400 dark:hover:border-purple-600 hover:shadow-md transition-all flex flex-col p-3.5 gap-2 group"
                 onClick={() =>
                   window.dispatchEvent(new CustomEvent('preview-card', { detail: card.id }))
                 }
               >
                 {card.imageUrl && (
-                  <div className="w-full h-24 bg-gray-50 dark:bg-[#16171d] border-b border-gray-200 dark:border-gray-700 relative overflow-hidden">
+                  <div className="w-full h-24 bg-gray-50 dark:bg-[#16171d] rounded-lg border border-gray-100 dark:border-gray-800 relative overflow-hidden shrink-0">
                     <img
                       src={
                         card.imageUrl.startsWith('http')
@@ -107,44 +107,58 @@ export const FuzzyMatchList: React.FC<FuzzyMatchListProps> = ({
                   </div>
                 )}
                 
-                <div className="p-3 pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-bold text-gray-900 dark:text-gray-100 text-sm line-clamp-2">
-                      {card.front}
-                    </h4>
-                    <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                      {card.type && (
-                        <span className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded shrink-0 font-medium">
-                          {card.type}
-                        </span>
-                      )}
-                      {card.type === 'Useful Expressions' && card.style && (
-                        <span className="text-[9px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded shrink-0 font-semibold">
-                          {card.style}
-                        </span>
-                      )}
-                      {card.type === 'Glossary' && card.label && (
-                        <TaxonomyTagBadge label={card.label} size="xs" />
-                      )}
-                      {card.type === 'Ready Versions' && card.label && (
-                        <span className="text-[9px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded shrink-0 font-semibold">
-                          {card.label}
-                        </span>
-                      )}
-                    </div>
+                {/* Metadata Row: Badges & Tags */}
+                <div className="flex items-center justify-between gap-1.5 min-w-0">
+                  <div className="flex items-center gap-1.5 overflow-hidden flex-wrap flex-1 min-w-0">
+                    {card.type && (
+                      <span className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded shrink-0 font-medium select-none">
+                        {card.type}
+                      </span>
+                    )}
+                    {card.type === 'Useful Expressions' && card.style && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded shrink-0 font-semibold truncate max-w-[90px]"
+                        title={card.style}
+                      >
+                        {card.style}
+                      </span>
+                    )}
+                    {card.type === 'Glossary' && card.label && (
+                      <TaxonomyTagBadge label={card.label} size="xs" maxTags={1} compact />
+                    )}
+                    {card.type === 'Ready Versions' && card.label && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded shrink-0 font-semibold truncate max-w-[90px]"
+                        title={card.label}
+                      >
+                        {card.label}
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                <div className="border-t border-dotted border-gray-200 dark:border-gray-700 w-full" />
+                {/* Front Side: Term / Title (Full Width) */}
+                <h4 className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-snug line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                  {card.front || <span className="text-gray-400 font-normal italic">No front text</span>}
+                </h4>
 
-                <div className="p-3 pt-2">
-                  <p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-2 leading-relaxed">
+                {/* Source Context (if present) */}
+                {card.sourceContext && (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 italic line-clamp-1 border-l-2 border-purple-300 dark:border-purple-800 pl-1.5">
+                    “{card.sourceContext}”
+                  </p>
+                )}
+
+                {/* Back Side: Definition / Explanation (3-4 lines readable area) */}
+                {card.back && (
+                  <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed line-clamp-4 select-text">
                     {card.back}
                   </p>
-                </div>
+                )}
 
-                <div className="bg-gray-50/80 dark:bg-gray-800/60 px-3 py-1.5 flex items-center justify-between border-t border-gray-100 dark:border-gray-800/80">
-                  <span className="text-[11px] font-medium text-gray-400">
+                {/* Card Footer: Review count & Quick review button */}
+                <div className="pt-2 mt-0.5 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between text-xs">
+                  <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 select-none">
                     {(card.repetitions || 0) + (card.manualReviewCount || 0)} Reviews
                   </span>
                   <button
@@ -152,7 +166,7 @@ export const FuzzyMatchList: React.FC<FuzzyMatchListProps> = ({
                       e.stopPropagation();
                       onIncrement(card.id);
                     }}
-                    className="px-2.5 py-0.5 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400 text-white rounded text-xs font-bold transition-colors shadow-sm"
+                    className="px-2 py-0.5 bg-purple-50 hover:bg-purple-600 text-purple-700 hover:text-white dark:bg-purple-950/50 dark:hover:bg-purple-600 dark:text-purple-300 dark:hover:text-white rounded-md text-xs font-bold transition-all border border-purple-200/80 dark:border-purple-800/80 shadow-2xs"
                     title="Increment review count (+1)"
                   >
                     +1
