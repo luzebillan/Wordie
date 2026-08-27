@@ -106,11 +106,6 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
             <div className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">
               {card.front}
             </div>
-            {card.sourceContext && (
-              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
-                {card.sourceContext}
-              </div>
-            )}
           </div>
         )
 

@@ -138,6 +138,17 @@ export function initDB() {
     console.error("[DB Migration] Backslash to slash migration check skipped/failed:", e);
   }
 
+  // Auto-clear legacy sourceContext for Useful Expressions cards
+  try {
+    const hasLegacyContext = db.prepare("SELECT 1 FROM cards WHERE type = 'Useful Expressions' AND sourceContext IS NOT NULL AND sourceContext != '' LIMIT 1").get();
+    if (hasLegacyContext) {
+      db.prepare("UPDATE cards SET sourceContext = NULL WHERE type = 'Useful Expressions'").run();
+      console.log("[DB Migration] Cleared legacy sourceContext for Useful Expressions cards.");
+    }
+  } catch (e) {
+    console.error("[DB Migration] Legacy sourceContext clear check skipped/failed:", e);
+  }
+
   // Trigger vector migration asynchronously
   migrateVectors().catch(console.error);
 }

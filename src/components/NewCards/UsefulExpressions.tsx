@@ -68,7 +68,7 @@ export const UsefulExpressions: React.FC<UsefulExpressionsProps> = ({ onNavigate
         back,
         style,
         label: '',
-        sourceContext: context
+        sourceContext: ''
       })
       
       // Reset form and similar cards on success
