@@ -1,8 +1,18 @@
-import { db } from './connection'
-import { clearVectorTable, addCardVector } from '../vector_db'
+import { db, projectCJK } from './connection'
+import { clearVectorTable, addCardVectorsBatch } from '../vector_db'
+import { getEmbedding, getEmbeddingsBatch } from '../semantic'
 import { initSettings } from '../config'
 
+export { projectCJK }
+
 export function initDB() {
+  // Register SQLite custom function for CJK unigram projection
+  try {
+    db.function('cjk_unigram', (str: any) => projectCJK(str));
+  } catch (e) {
+    // Ignore if already registered
+  }
+
   const versionInfo = db.prepare('PRAGMA user_version').get() as { user_version: number };
   let currentVersion = versionInfo.user_version;
 
@@ -91,39 +101,86 @@ export function initDB() {
 
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
-        front, back, label,
-        content='cards', content_rowid='id'
+        front, back, label, style, sourceContext,
+        content=''
       )
     `);
 
-    // Populate FTS table if it's empty
-    const count = db.prepare('SELECT COUNT(*) as c FROM cards_fts').get() as {c: number};
-    if (count.c === 0) {
-      db.exec(`INSERT INTO cards_fts(cards_fts) VALUES ('rebuild');`);
-    }
-
     db.exec(`
       CREATE TRIGGER IF NOT EXISTS cards_ai AFTER INSERT ON cards BEGIN
-        INSERT INTO cards_fts(rowid, front, back, label) VALUES (new.id, new.front, new.back, new.label);
+        INSERT INTO cards_fts(rowid, front, back, label, style, sourceContext) 
+        VALUES (new.id, cjk_unigram(new.front), cjk_unigram(new.back), cjk_unigram(new.label), cjk_unigram(new.style), cjk_unigram(new.sourceContext));
       END;
       CREATE TRIGGER IF NOT EXISTS cards_ad AFTER DELETE ON cards BEGIN
-        INSERT INTO cards_fts(cards_fts, rowid, front, back, label) VALUES ('delete', old.id, old.front, old.back, old.label);
+        INSERT INTO cards_fts(cards_fts, rowid, front, back, label, style, sourceContext) 
+        VALUES ('delete', old.id, cjk_unigram(old.front), cjk_unigram(old.back), cjk_unigram(old.label), cjk_unigram(old.style), cjk_unigram(old.sourceContext));
       END;
       CREATE TRIGGER IF NOT EXISTS cards_au AFTER UPDATE ON cards BEGIN
-        INSERT INTO cards_fts(cards_fts, rowid, front, back, label) VALUES ('delete', old.id, old.front, old.back, old.label);
-        INSERT INTO cards_fts(rowid, front, back, label) VALUES (new.id, new.front, new.back, new.label);
+        INSERT INTO cards_fts(cards_fts, rowid, front, back, label, style, sourceContext) 
+        VALUES ('delete', old.id, cjk_unigram(old.front), cjk_unigram(old.back), cjk_unigram(old.label), cjk_unigram(old.style), cjk_unigram(old.sourceContext));
+        INSERT INTO cards_fts(rowid, front, back, label, style, sourceContext) 
+        VALUES (new.id, cjk_unigram(new.front), cjk_unigram(new.back), cjk_unigram(new.label), cjk_unigram(new.style), cjk_unigram(new.sourceContext));
       END;
     `);
+
+    // Populate FTS table from cards if any exist
+    db.exec(`
+      INSERT INTO cards_fts(rowid, front, back, label, style, sourceContext)
+      SELECT id, cjk_unigram(front), cjk_unigram(back), cjk_unigram(label), cjk_unigram(style), cjk_unigram(sourceContext)
+      FROM cards;
+    `);
+
+    db.prepare(`INSERT OR REPLACE INTO db_meta (key, value) VALUES ('fts_version', 'cjk_unigram_v1')`).run();
 
     db.pragma('user_version = 1');
     currentVersion = 1;
   }
 
+  // Upgrade existing DB cards_fts to CJK unigram projection if not yet migrated
+  try {
+    const ftsVersionRow = db.prepare(`SELECT value FROM db_meta WHERE key = 'fts_version'`).get() as any;
+    if (!ftsVersionRow || ftsVersionRow.value !== 'cjk_unigram_v1') {
+      console.log("[DB Migration] Upgrading cards_fts table to CJK unigram projection...");
+      db.exec(`
+        DROP TRIGGER IF EXISTS cards_ai;
+        DROP TRIGGER IF EXISTS cards_ad;
+        DROP TRIGGER IF EXISTS cards_au;
+        DROP TABLE IF EXISTS cards_fts;
+
+        CREATE VIRTUAL TABLE cards_fts USING fts5(
+          front, back, label, style, sourceContext,
+          content=''
+        );
+
+        CREATE TRIGGER cards_ai AFTER INSERT ON cards BEGIN
+          INSERT INTO cards_fts(rowid, front, back, label, style, sourceContext) 
+          VALUES (new.id, cjk_unigram(new.front), cjk_unigram(new.back), cjk_unigram(new.label), cjk_unigram(new.style), cjk_unigram(new.sourceContext));
+        END;
+        CREATE TRIGGER cards_ad AFTER DELETE ON cards BEGIN
+          INSERT INTO cards_fts(cards_fts, rowid, front, back, label, style, sourceContext) 
+          VALUES ('delete', old.id, cjk_unigram(old.front), cjk_unigram(old.back), cjk_unigram(old.label), cjk_unigram(old.style), cjk_unigram(old.sourceContext));
+        END;
+        CREATE TRIGGER cards_au AFTER UPDATE ON cards BEGIN
+          INSERT INTO cards_fts(cards_fts, rowid, front, back, label, style, sourceContext) 
+          VALUES ('delete', old.id, cjk_unigram(old.front), cjk_unigram(old.back), cjk_unigram(old.label), cjk_unigram(old.style), cjk_unigram(old.sourceContext));
+          INSERT INTO cards_fts(rowid, front, back, label, style, sourceContext) 
+          VALUES (new.id, cjk_unigram(new.front), cjk_unigram(new.back), cjk_unigram(new.label), cjk_unigram(new.style), cjk_unigram(new.sourceContext));
+        END;
+
+        INSERT INTO cards_fts(rowid, front, back, label, style, sourceContext)
+        SELECT id, cjk_unigram(front), cjk_unigram(back), cjk_unigram(label), cjk_unigram(style), cjk_unigram(sourceContext)
+        FROM cards;
+
+        INSERT OR REPLACE INTO db_meta (key, value) VALUES ('fts_version', 'cjk_unigram_v1');
+      `);
+      console.log("[DB Migration] cards_fts successfully upgraded to CJK unigram projection.");
+    }
+  } catch (e) {
+    console.error("[DB Migration] Failed to upgrade cards_fts to CJK unigram projection:", e);
+  }
+
   // Initialize config manager (and migrate legacy settings from SQLite if needed)
   initSettings(db);
-
-  // Future migrations can go here:
-  // if (currentVersion === 1) { ... db.pragma('user_version = 2'); currentVersion = 2; }
 
   // Auto-migrate legacy backslashes '\' in cards.label to POSIX '/'
   try {
@@ -165,18 +222,57 @@ async function migrateVectors() {
     } catch {}
   }
   
-  if (version !== 'minilm_v1') {
-    console.log("Migrating vector database to new model: Xenova/all-MiniLM-L6-v2");
+  if (version !== 'multilingual_minilm_v1') {
+    console.log("Migrating vector database to new model: Xenova/paraphrase-multilingual-MiniLM-L12-v2");
     await clearVectorTable();
     
     const cards = db.prepare('SELECT id, front, back, type FROM cards').all() as any[];
-    for (const card of cards) {
-      if (card.front && card.back) {
-        await addCardVector(card.id, card.front, card.back, card.type);
+    const validCards = cards.filter(c => c.front && c.front.trim());
+    const BATCH_SIZE = 32;
+
+    for (let i = 0; i < validCards.length; i += BATCH_SIZE) {
+      const batch = validCards.slice(i, i + BATCH_SIZE);
+      const textsToEmbed = batch.map(c => c.back && c.back.trim() ? `${c.front}: ${c.back}` : c.front);
+
+      try {
+        const vectors = await getEmbeddingsBatch(textsToEmbed);
+        const batchData = batch.map((card, idx) => ({
+          id: card.id,
+          front: card.front,
+          type: card.type,
+          vector: vectors[idx] || []
+        })).filter(item => item.vector && item.vector.length > 0);
+
+        if (batchData.length > 0) {
+          await addCardVectorsBatch(batchData);
+        }
+      } catch (e) {
+        console.error(`Failed to batch embed cards starting at index ${i}, falling back to single embeds:`, e);
+        const batchData: { id: number; front: string; type: string; vector: number[] }[] = [];
+        for (const card of batch) {
+          const textToEmbed = card.back && card.back.trim() ? `${card.front}: ${card.back}` : card.front;
+          try {
+            const vector = await getEmbedding(textToEmbed);
+            if (vector && vector.length > 0) {
+              batchData.push({
+                id: card.id,
+                front: card.front,
+                type: card.type,
+                vector
+              });
+            }
+          } catch (singleErr) {
+            console.error(`Failed to embed card ${card.id}:`, singleErr);
+          }
+        }
+
+        if (batchData.length > 0) {
+          await addCardVectorsBatch(batchData);
+        }
       }
     }
     
-    db.prepare(`INSERT OR REPLACE INTO db_meta (key, value) VALUES ('semantic_model_version', 'minilm_v1')`).run();
+    db.prepare(`INSERT OR REPLACE INTO db_meta (key, value) VALUES ('semantic_model_version', 'multilingual_minilm_v1')`).run();
     console.log("Migration complete.");
   }
 }

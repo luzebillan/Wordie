@@ -147,22 +147,49 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     }
   }, [specificCardId])
 
-  // 3. Handle card deleted event
+  // 3. Handle card deleted and stats-updated events
   useEffect(() => {
     const handleCardDeleted = (e: any) => {
       const deletedId = e.detail
-      setSessionQueue(prev => prev.filter(c => c.id !== deletedId))
+      setSessionQueue(prev => {
+        const deletedIndex = prev.findIndex(c => c.id === deletedId)
+        if (deletedIndex !== -1 && deletedIndex < currentIndex) {
+          setCurrentIndex(ci => Math.max(0, ci - 1))
+        }
+        return prev.filter(c => c.id !== deletedId)
+      })
       setCardStatusMap(prev => {
         const next = new Map(prev)
         next.delete(deletedId)
         return next
       })
     }
-    window.addEventListener('card-deleted', handleCardDeleted)
-    return () => window.removeEventListener('card-deleted', handleCardDeleted)
-  }, [])
 
-  // Compute session stats derived from cardStatusMap
+    const handleStatsUpdated = async () => {
+      // If revision hasn't started yet or queue is empty, keep due queue refreshed
+      if (!specificCardId && ((currentIndex === 0 && undoStack.length === 0) || sessionQueue.length === 0)) {
+        try {
+          const cards = await window.ipcRenderer.getDueCards()
+          const { queue, statusMap } = initSessionQueue(cards || [])
+          setSessionQueue(queue)
+          setCurrentIndex(0)
+          setCardStatusMap(statusMap)
+          setUndoStack([])
+        } catch (e) {
+          console.error('Failed to reload due cards on stats-updated:', e)
+        }
+      }
+    }
+
+    window.addEventListener('card-deleted', handleCardDeleted)
+    window.addEventListener('stats-updated', handleStatsUpdated)
+    return () => {
+      window.removeEventListener('card-deleted', handleCardDeleted)
+      window.removeEventListener('stats-updated', handleStatsUpdated)
+    }
+  }, [specificCardId, currentIndex, undoStack.length, sessionQueue.length])
+
+  // Compute session stats directly derived from cardStatusMap
   const stats = useMemo(() => {
     return computeSessionStats(cardStatusMap)
   }, [cardStatusMap])

@@ -2,6 +2,23 @@ import { db } from './connection'
 import { searchCardVectors } from '../vector_db'
 import { aiFilterSynonyms } from '../ai'
 import { settingsRepo } from './settingsRepo'
+import { projectCJK } from './init'
+
+export function buildFtsQuery(query: string): string {
+  const cleanTerms = query.replace(/["*^:()]/g, ' ').split(/\s+/).filter(Boolean);
+  if (cleanTerms.length === 0) return '';
+
+  return cleanTerms.map(term => {
+    const safeTerm = term.replace(/"/g, '');
+    const hasCJK = /[\u4e00-\u9fa5\u3400-\u4dbf\uf900-\ufaff]/.test(safeTerm);
+    if (hasCJK) {
+      const projected = projectCJK(safeTerm);
+      return `"${projected}"`;
+    } else {
+      return `"${safeTerm}"*`;
+    }
+  }).join(' OR ');
+}
 
 export const searchService = {
   searchCards: (query: string = '', type?: string, limit?: number) => {
@@ -21,13 +38,13 @@ export const searchService = {
     const cleanTerms = trimmed.replace(/["*^:()]/g, ' ').split(/\s+/).filter(Boolean);
     if (cleanTerms.length === 0) return [];
 
-    const ftsQuery = cleanTerms.map(term => `"${term}"*`).join(' OR ');
+    const ftsQuery = buildFtsQuery(trimmed);
     const ftsRankMap = new Map<number, number>();
     const matchedCardsMap = new Map<number, any>();
 
     const recallLimit = limit && limit > 0 ? Math.max(limit * 3, 50) : 500;
 
-    // 1. FTS5 Lexical Search
+    // 1. FTS5 Lexical Search (with CJK unigram projection)
     if (ftsQuery) {
       try {
         const ftsRows = type
@@ -54,39 +71,41 @@ export const searchService = {
       }
     }
 
-    // 2. SQL LIKE Substring Search (Guarantees CJK middle-string and full-field recall)
-    try {
-      const escapedLike = trimmed.replace(/[%_\\]/g, '\\$&');
-      const likePattern = `%${escapedLike}%`;
-      const likeRows = type
-        ? db.prepare(`
-            SELECT * FROM cards 
-            WHERE type = ? AND (
-              front LIKE ? ESCAPE '\\' OR 
-              back LIKE ? ESCAPE '\\' OR 
-              label LIKE ? ESCAPE '\\' OR 
-              style LIKE ? ESCAPE '\\' OR 
-              sourceContext LIKE ? ESCAPE '\\'
-            )
-            ORDER BY createdAt DESC LIMIT ?
-          `).all(type, likePattern, likePattern, likePattern, likePattern, likePattern, recallLimit) as any[]
-        : db.prepare(`
-            SELECT * FROM cards 
-            WHERE front LIKE ? ESCAPE '\\' OR 
-                  back LIKE ? ESCAPE '\\' OR 
-                  label LIKE ? ESCAPE '\\' OR 
-                  style LIKE ? ESCAPE '\\' OR 
-                  sourceContext LIKE ? ESCAPE '\\'
-            ORDER BY createdAt DESC LIMIT ?
-          `).all(likePattern, likePattern, likePattern, likePattern, likePattern, recallLimit) as any[];
+    // 2. SQL LIKE Substring Search fallback (only if FTS returned 0 results or failed)
+    if (matchedCardsMap.size === 0) {
+      try {
+        const escapedLike = trimmed.replace(/[%_\\]/g, '\\$&');
+        const likePattern = `%${escapedLike}%`;
+        const likeRows = type
+          ? db.prepare(`
+              SELECT * FROM cards 
+              WHERE type = ? AND (
+                front LIKE ? ESCAPE '\\' OR 
+                back LIKE ? ESCAPE '\\' OR 
+                label LIKE ? ESCAPE '\\' OR 
+                style LIKE ? ESCAPE '\\' OR 
+                sourceContext LIKE ? ESCAPE '\\'
+              )
+              ORDER BY createdAt DESC LIMIT ?
+            `).all(type, likePattern, likePattern, likePattern, likePattern, likePattern, recallLimit) as any[]
+          : db.prepare(`
+              SELECT * FROM cards 
+              WHERE front LIKE ? ESCAPE '\\' OR 
+                    back LIKE ? ESCAPE '\\' OR 
+                    label LIKE ? ESCAPE '\\' OR 
+                    style LIKE ? ESCAPE '\\' OR 
+                    sourceContext LIKE ? ESCAPE '\\'
+              ORDER BY createdAt DESC LIMIT ?
+            `).all(likePattern, likePattern, likePattern, likePattern, likePattern, recallLimit) as any[];
 
-      for (const card of likeRows) {
-        if (!matchedCardsMap.has(card.id)) {
-          matchedCardsMap.set(card.id, card);
+        for (const card of likeRows) {
+          if (!matchedCardsMap.has(card.id)) {
+            matchedCardsMap.set(card.id, card);
+          }
         }
+      } catch (e) {
+        console.warn("LIKE fallback failed", e);
       }
-    } catch (e) {
-      console.warn("LIKE query failed", e);
     }
 
     // 3. Multi-level Deterministic Relevance Ranking
@@ -158,16 +177,54 @@ export const searchService = {
     return results;
   },
 
-  findSimilarCards: async (front: string, back: string = '', type?: string, useLLM: boolean = false, context: string = '') => {
+  searchVectorCards: async (queryText: string, type?: string, limit: number = 25) => {
+    if (!queryText || !queryText.trim()) return [];
+    try {
+      const lanceResults = await searchCardVectors(queryText.trim(), type, limit);
+      if (!lanceResults || lanceResults.length === 0) return [];
+
+      const candidateIds = lanceResults.map(r => r.id).filter(id => typeof id === 'number');
+      if (candidateIds.length === 0) return [];
+
+      const placeholders = candidateIds.map(() => '?').join(',');
+      const matchedCards = (type
+        ? db.prepare(`SELECT * FROM cards WHERE id IN (${placeholders}) AND type = ?`).all(...candidateIds, type)
+        : db.prepare(`SELECT * FROM cards WHERE id IN (${placeholders})`).all(...candidateIds)) as any[];
+      const cardsMap = new Map(matchedCards.map(c => [c.id, c]));
+
+      const ordered: any[] = [];
+      for (const r of lanceResults) {
+        const card = cardsMap.get(r.id);
+        if (card && !ordered.some(c => c.id === card.id)) {
+          ordered.push(card);
+        }
+      }
+      return ordered.slice(0, limit);
+    } catch (e) {
+      console.error("[searchVectorCards] Failed:", e);
+      return [];
+    }
+  },
+
+  findSimilarCards: async (
+    front: string,
+    back: string = '',
+    type?: string,
+    useLLM: boolean = false,
+    context: string = '',
+    options?: { minScore?: number; limit?: number }
+  ) => {
     if (!front && !back) return [];
     
     // We completely remove FTS (Keyword checking) based on user directive.
     const safeQuery = [front, back].filter(Boolean).join(' ').replace(/[^\w\s\u4e00-\u9fa5]/g, '').trim();
     if (!safeQuery) return [];
 
+    const queryLimit = options?.limit ? Math.max(options.limit * 2, 30) : 30;
+
     // Stage 1: Vector Search (High Recall)
     const semanticQuery = back ? (front ? `${front}: ${back}` : back) : front;
-    const lanceResults = await searchCardVectors(semanticQuery, type, 30);
+    const lanceResults = await searchCardVectors(semanticQuery, type, queryLimit);
     if (!lanceResults || lanceResults.length === 0) return [];
     
     const candidateIds = lanceResults.map(r => r.id).filter(id => typeof id === 'number');
@@ -190,7 +247,8 @@ export const searchService = {
 
     rawScoredCards.sort((a, b) => b.score - a.score);
     
-    const BASELINE_FLOOR = 0.60;
+    const BASELINE_FLOOR = options?.minScore !== undefined ? options.minScore : 0.60;
+    const maxCandidates = options?.limit !== undefined ? options.limit : 15;
     let candidates = [];
     const seenIds = new Set();
     for (const item of rawScoredCards) {
@@ -200,7 +258,7 @@ export const searchService = {
         candidates.push(item.card);
         seenIds.add(item.card.id);
       }
-      if (candidates.length >= 15) break; 
+      if (candidates.length >= maxCandidates) break; 
     }
     
     // Stage 2: LLM Strict Filtering (for Synonyms)
@@ -224,6 +282,6 @@ export const searchService = {
       }
     }
 
-    return candidates.slice(0, 10);
+    return candidates.slice(0, options?.limit !== undefined ? options.limit : 10);
   }
 }

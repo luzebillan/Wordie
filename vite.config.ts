@@ -20,6 +20,9 @@ export default defineConfig(({ command }) => {
   const sourcemap = isServe || !!process.env.VSCODE_DEBUG
 
   return {
+    server: {
+      host: '127.0.0.1',
+    },
     resolve: {
       alias: {
         '@': path.join(__dirname, 'src'),
@@ -34,6 +37,7 @@ export default defineConfig(({ command }) => {
           plugins: [notBundle()],
           options: {
             build: {
+              copyPublicDir: false,
               sourcemap,
               minify: isBuild,
               outDir: 'dist-electron/main',
@@ -48,6 +52,7 @@ export default defineConfig(({ command }) => {
           plugins: [notBundle()],
           options: {
             build: {
+              copyPublicDir: false,
               sourcemap: sourcemap ? 'inline' : undefined, // #332
               minify: isBuild,
               outDir: 'dist-electron/preload',

@@ -10,6 +10,7 @@ import {
   DEFAULT_PROMPT_REVISION_CLOZE,
   DEFAULT_PROMPT_PURE_LISTENER,
   DEFAULT_PROMPT_PRACTICE_EXTRACT,
+  DEFAULT_PROMPT_PRACTICE_VERIFY,
   DEFAULT_PROMPT_PRACTICE_REWRITE,
   DEFAULT_PROMPT_AI_VERSION,
   DEFAULT_PROMPT_SYNONYMS
@@ -131,7 +132,7 @@ export async function aiGenerateDailyWord(
           { role: 'user', content: content }
         ],
         temperature: 0.7,
-        max_tokens: 500
+        max_tokens: 2000
       })
     })
 
@@ -195,7 +196,7 @@ async function callAiApi(prompt: string, settings: Record<string, string>) {
           model: model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.7,
-          max_tokens: 500
+          max_tokens: 2000
         }),
         signal: AbortSignal.timeout(60000) // 60s timeout
       })
@@ -240,24 +241,15 @@ export async function aiGenerateExpression(
   return await callAiApi(prompt, settings)
 }
 
-export async function generateRevisionCloze(
-  front: string,
-  back: string,
-  settings: Record<string, string>
-): Promise<{ success: boolean; result?: string; error?: string }> {
-  const sketchApiKey = settings['sketchEngineKey'] || ''
-  const sketchApiUrl = settings['sketchEngineUrl'] || 'https://api.sketchengine.eu/bonito/run.cgi'
-  if (!sketchApiKey) {
-    return { success: false, error: 'Missing Sketch Engine API Key in Settings.' }
-  }
-
-  // 1. Format phrase
+export function formatSketchEnginePhrase(front: string): { cleanPhrase: string; searchWords: string[]; cqlTokens: string[] } {
   let clean_phrase = front.replace(/\*/g, " ").toLowerCase()
+  clean_phrase = clean_phrase.replace(/[\u2018\u2019]/g, "'") // normalize curly apostrophes
   const placeholders = ["someone", "something", "sb.", "sb", "sth.", "sth", "one's", "ones", "oneself", "be"]
   
   for (const p of placeholders) {
     const escaped_p = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp(`(?<![a-z])${escaped_p}(?![a-z])`, 'g')
+    // Specifically ensure 'anyone's' is never stripped when stripping 'one's'
+    const regex = new RegExp(`(?<![a-z]|any)${escaped_p}(?![a-z])`, 'g')
     clean_phrase = clean_phrase.replace(regex, '*')
   }
   
@@ -272,7 +264,7 @@ export async function generateRevisionCloze(
     const words = part.split(/\s+/).filter(Boolean)
     words.forEach(w => {
       search_words.push(w)
-      if (w.endsWith('s') || w.endsWith('ing') || w.endsWith('ed') || w.endsWith('d') || w.endsWith('es') || w.endsWith('en') || w.endsWith('ought') || w.endsWith('own')) {
+      if (w.endsWith('s') || w.endsWith('ing') || w.endsWith('ed') || w.endsWith('d') || w.endsWith('es') || w.endsWith('en') || w.endsWith('ought') || w.endsWith('own') || w.endsWith('aught')) {
         cql_tokens.push(`[word="(?i)${w}"]`)
       } else {
         cql_tokens.push(`[lemma_lc="${w}"]`)
@@ -283,8 +275,23 @@ export async function generateRevisionCloze(
       cql_tokens.push('[]{1,2}')
     }
   })
-  
-  const cql_query = cql_tokens.join(' ')
+
+  return { cleanPhrase: clean_phrase, searchWords: search_words, cqlTokens: cql_tokens }
+}
+
+export async function generateRevisionCloze(
+  front: string,
+  back: string,
+  settings: Record<string, string>
+): Promise<{ success: boolean; result?: string; error?: string }> {
+  const sketchApiKey = settings['sketchEngineKey'] || ''
+  const sketchApiUrl = settings['sketchEngineUrl'] || 'https://api.sketchengine.eu/bonito/run.cgi'
+  if (!sketchApiKey) {
+    return { success: false, error: 'Missing Sketch Engine API Key in Settings.' }
+  }
+
+  const { searchWords, cqlTokens } = formatSketchEnginePhrase(front)
+  const cql_query = cqlTokens.join(' ')
   
   let sketchBaseUrl = sketchApiUrl
   if (sketchBaseUrl.endsWith('/')) {
@@ -344,7 +351,7 @@ export async function generateRevisionCloze(
 
   const display_phrase = front.replace(/\*/g, " ")
 
-  const wordsToBlank = search_words.join(', ')
+  const wordsToBlank = searchWords.join(', ')
 
   const template = settings['promptRevisionCloze'] || DEFAULT_PROMPT_REVISION_CLOZE
   const aiPrompt = template
@@ -359,6 +366,10 @@ export async function generateRevisionCloze(
   }
 
   let rewrittenText = aiRes.result.trim()
+  const codeBlockMatch = rewrittenText.match(/```(?:\w+)?\s*([\s\S]*?)\s*```/)
+  if (codeBlockMatch) {
+    rewrittenText = codeBlockMatch[1].trim()
+  }
 
   return { success: true, result: rewrittenText }
 }
@@ -378,100 +389,294 @@ export async function practicePureListener(text: string, settings: any) {
   return { success: true, result: aiRes.result.trim() }
 }
 
+export function sanitizeLenientJson(str: string): string {
+  return str
+    // Replace single quotes that act as delimiters, preserving apostrophes inside words (e.g., one's, don't)
+    .replace(/(?<![a-zA-Z0-9])'|'(?![a-zA-Z0-9])/g, '"')
+    // Remove trailing commas before closing brackets and braces
+    .replace(/,\s*([\]}])/g, '$1')
+}
+
+export function extractJsonObjects<T = any>(rawText: string): T[] | null {
+  if (!rawText) return null
+  let cleaned = rawText.trim()
+  
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim()
+  }
+
+  const firstBracket = cleaned.indexOf('[')
+  const lastBracket = cleaned.lastIndexOf(']')
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    cleaned = cleaned.substring(firstBracket, lastBracket + 1)
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned)
+    if (Array.isArray(parsed)) return parsed
+  } catch {}
+
+  try {
+    const sanitized = sanitizeLenientJson(cleaned)
+    const parsed = JSON.parse(sanitized)
+    if (Array.isArray(parsed)) return parsed
+  } catch {}
+
+  return null
+}
+
+export function extractJsonObject<T = any>(rawText: string): T | null {
+  if (!rawText) return null
+  let cleaned = rawText.trim()
+  
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim()
+  }
+
+  const firstBrace = cleaned.indexOf('{')
+  const lastBrace = cleaned.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1)
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed
+  } catch {}
+
+  try {
+    const sanitized = sanitizeLenientJson(cleaned)
+    const parsed = JSON.parse(sanitized)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed
+  } catch {}
+
+  return null
+}
+
 export async function practiceRewrite(text: string, settings: any, dbHandlers: any) {
-  // 1. Extract expressions to optimize
-  const rewriteDivider = parseInt(settings.rewriteDivider || '20', 10)
+  if (!text || text.trim() === '') {
+    return { success: true, result: { text: '', cards: [] } }
+  }
+
   let allCards = dbHandlers.getCards ? dbHandlers.getCards('Useful Expressions') : []
   if (!allCards || allCards.length === 0) {
     // Fallback to all cards if no 'Useful Expressions' specific cards exist
     allCards = dbHandlers.getCards ? dbHandlers.getCards() : []
   }
-  const totalCards = allCards.length
   
-  if (totalCards === 0) {
+  allCards = (allCards || []).filter((c: any) => c && c.front && String(c.front).trim().length > 0)
+
+  if (!allCards || allCards.length === 0) {
     return { success: false, error: 'Your database is empty. Add some Useful Expressions first!' }
   }
 
-  const targetCount = Math.max(3, Math.ceil(totalCards / rewriteDivider))
+  let candidateCards: any[] = []
+  if (allCards.length <= 100) {
+    // Total <= 100: Pass all cards, prioritizing due cards first
+    let dueCardIds = new Set<number>()
+    try {
+      if (dbHandlers.getDueCards) {
+        const dueCards = dbHandlers.getDueCards() || []
+        dueCardIds = new Set(dueCards.map((c: any) => c.id))
+      }
+    } catch {}
 
-  const extractTemplate = settings['promptPracticeExtract'] || DEFAULT_PROMPT_PRACTICE_EXTRACT
-  const extractPrompt = extractTemplate
-    .replace('{{targetCount}}', targetCount.toString())
-    .replace('{{text}}', text)
+    candidateCards = [...allCards].sort((a, b) => {
+      const aDue = dueCardIds.has(a.id) ? 1 : 0
+      const bDue = dueCardIds.has(b.id) ? 1 : 0
+      return bDue - aDue
+    })
+  } else {
+    // Total > 100: Use top 25 candidates via hybrid/vector search
+    const candidateMap = new Map<number, any>()
 
-  const extractRes = await callAiApi(extractPrompt, settings)
-  if (!extractRes.success || !extractRes.result) {
-    return { success: false, error: 'AI failed to extract expressions: ' + extractRes.error }
+    // 1. Vector similarity search on input text
+    try {
+      if (dbHandlers.searchVectorCards) {
+        const vectorMatches = await dbHandlers.searchVectorCards(text, 'Useful Expressions', 25)
+        if (Array.isArray(vectorMatches)) {
+          for (const c of vectorMatches) {
+            candidateMap.set(c.id, c)
+            if (candidateMap.size >= 25) break
+          }
+        }
+      } else if (dbHandlers.findSimilarCards) {
+        const similar = await dbHandlers.findSimilarCards(text, '', 'Useful Expressions', false, '', { minScore: 0, limit: 25 })
+        if (Array.isArray(similar)) {
+          for (const c of similar) {
+            candidateMap.set(c.id, c)
+            if (candidateMap.size >= 25) break
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[Practice Rewrite] Vector candidate search failed:", e)
+    }
+
+    // 2. Supplement with lexical FTS search
+    if (candidateMap.size < 25 && dbHandlers.searchCards) {
+      try {
+        const ftsMatches = dbHandlers.searchCards(text, 'Useful Expressions', 25 - candidateMap.size)
+        if (Array.isArray(ftsMatches)) {
+          for (const c of ftsMatches) {
+            if (!candidateMap.has(c.id)) {
+              candidateMap.set(c.id, c)
+              if (candidateMap.size >= 25) break
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Supplement with priority due cards if still < 25
+    if (candidateMap.size < 25 && dbHandlers.getDueCards) {
+      try {
+        const dueCards = (dbHandlers.getDueCards() || []).filter((c: any) => c.type === 'Useful Expressions' || !c.type)
+        for (const c of dueCards) {
+          if (!candidateMap.has(c.id)) {
+            candidateMap.set(c.id, c)
+            if (candidateMap.size >= 25) break
+          }
+        }
+      } catch {}
+    }
+
+    // 4. Fallback to allCards if still < 25
+    if (candidateMap.size < 25) {
+      for (const c of allCards) {
+        if (!candidateMap.has(c.id)) {
+          candidateMap.set(c.id, c)
+          if (candidateMap.size >= 25) break
+        }
+      }
+    }
+
+    candidateCards = Array.from(candidateMap.values()).slice(0, 25)
   }
 
-  const rawExtracted = extractRes.result.trim()
-  if (rawExtracted.toUpperCase() === 'NONE' || rawExtracted.toUpperCase().startsWith('NONE')) {
+  if (candidateCards.length === 0) {
     return {
       success: true,
       result: {
-        text: "Your text is already very well written and doesn't need any changes!",
+        text: text,
         cards: []
       }
     }
   }
 
-  const phrases = rawExtracted.split('|').map((p: string) => p.trim()).filter((p: string) => p.length > 0 && p.toUpperCase() !== 'NONE')
+  // Build <vocabulary_bank> string
+  const vocabBankStr = candidateCards.map(c => {
+    const def = c.back && c.back.trim() ? ` — Definition: ${c.back.trim()}` : ''
+    return `[ID: ${c.id}] "${c.front}"${def}`
+  }).join('\n')
 
-  if (phrases.length === 0) {
-    return {
-      success: true,
-      result: {
-        text: "Your text is already very well written and doesn't need any changes!",
-        cards: []
+  const template = settings['promptPracticeRewrite'] || DEFAULT_PROMPT_PRACTICE_REWRITE
+  const prompt = template
+    .replaceAll('{{vocabulary_bank}}', vocabBankStr)
+    .replaceAll('{{vocabularyBank}}', vocabBankStr)
+    .replaceAll('{{cardsContext}}', vocabBankStr)
+    .replaceAll('{{replacementsContext}}', vocabBankStr)
+    .replaceAll('{{text}}', text)
+    .replaceAll('{{input_text}}', text)
+
+  const aiRes = await callAiApi(prompt, settings)
+  if (!aiRes.success || !aiRes.result) {
+    return { success: false, error: 'AI failed to rewrite text: ' + (aiRes.error || 'Empty response') }
+  }
+
+  let rewrittenText = text
+  let usedCardIds: number[] = []
+
+  const parsed = extractJsonObject<any>(aiRes.result)
+  if (parsed) {
+    if (typeof parsed.rewritten_text === 'string') {
+      rewrittenText = parsed.rewritten_text.trim()
+    } else if (typeof parsed.rewritten === 'string') {
+      rewrittenText = parsed.rewritten.trim()
+    } else if (typeof parsed.text === 'string') {
+      rewrittenText = parsed.text.trim()
+    } else if (typeof parsed.result === 'string') {
+      rewrittenText = parsed.result.trim()
+    }
+
+    const rawIds = parsed.used_card_ids || parsed.usedCardIds || parsed.card_ids || parsed.cardIds || parsed.cards || []
+    if (Array.isArray(rawIds)) {
+      for (const item of rawIds) {
+        if (typeof item === 'number') {
+          usedCardIds.push(item)
+        } else if (typeof item === 'string') {
+          const match = item.match(/\d+/)
+          if (match) {
+            usedCardIds.push(parseInt(match[0], 10))
+          } else {
+            const itemStr = item.toLowerCase().trim()
+            const found = candidateCards.find(c => c.front && c.front.toLowerCase().trim() === itemStr)
+            if (found) usedCardIds.push(found.id)
+          }
+        } else if (item && typeof item === 'object' && item.id !== undefined) {
+          const idNum = typeof item.id === 'number' ? item.id : parseInt(String(item.id).match(/\d+/)?.[0] || '', 10)
+          if (!isNaN(idNum)) usedCardIds.push(idNum)
+        }
+      }
+    }
+  } else {
+    // If model returned plain text or markdown block
+    let raw = aiRes.result.trim()
+    const codeBlockMatch = raw.match(/```(?:\w+)?\s*([\s\S]*?)\s*```/)
+    rewrittenText = (codeBlockMatch ? codeBlockMatch[1] : raw).trim()
+  }
+
+  const usedIdSet = new Set(usedCardIds)
+  let finalCards = candidateCards.filter(c => usedIdSet.has(c.id))
+
+  // Fallback text match if model referenced card front string
+  if (finalCards.length === 0 && usedCardIds.length === 0 && parsed) {
+    const rawIds = parsed.used_card_ids || parsed.usedCardIds || parsed.cards || []
+    if (Array.isArray(rawIds)) {
+      for (const item of rawIds) {
+        const itemStr = String(item).toLowerCase().trim()
+        const found = candidateCards.find(c => c.front && c.front.toLowerCase().trim() === itemStr)
+        if (found && !finalCards.includes(found)) {
+          finalCards.push(found)
+        }
       }
     }
   }
 
-  // 2. Search for relevant cards
-  const matchedCards = new Set<any>()
-  
-  // Use our local semantic search
-  // We'll just search each phrase and take the top result.
-  for (const phrase of phrases) {
-    const results = await dbHandlers.findSimilarCards(phrase, phrase, 'Useful Expressions')
-    if (results && results.length > 0) {
-      matchedCards.add(results[0])
-    }
+  const codeMatch = rewrittenText.match(/```(?:\w+)?\s*([\s\S]*?)\s*```/)
+  if (codeMatch) {
+    rewrittenText = codeMatch[1].trim()
   }
 
-  // If we couldn't match enough, pad with random cards
-  const finalCards = Array.from(matchedCards)
-  while (finalCards.length < targetCount && finalCards.length < totalCards) {
-    const randomCard = allCards[Math.floor(Math.random() * allCards.length)]
-    if (!finalCards.find(c => c.id === randomCard.id)) {
-      finalCards.push(randomCard)
-    }
+  if (rewrittenText.startsWith('"') && rewrittenText.endsWith('"') && rewrittenText.length >= 2) {
+    rewrittenText = rewrittenText.slice(1, -1).trim()
   }
 
-  if (finalCards.length === 0) {
-    return {
-      success: true,
-      result: {
-        text: "Your text is already very well written and doesn't need any changes!",
-        cards: []
+  // Fallback: If no cards matched by ID and model omitted used_card_ids, detect if candidate expressions were newly integrated in rewrittenText
+  if ((!parsed || (parsed.used_card_ids === undefined && parsed.usedCardIds === undefined)) && finalCards.length === 0 && candidateCards.length > 0) {
+    for (const card of candidateCards) {
+      const cleanFront = (card.front || '').replace(/\*/g, '').trim()
+      if (cleanFront.length >= 3) {
+        const escapedFront = cleanFront.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const regex = new RegExp(`(?<![a-zA-Z0-9])${escapedFront}(?![a-zA-Z0-9])`, 'i')
+        if (regex.test(rewrittenText) && !regex.test(text)) {
+          if (!finalCards.some(c => c.id === card.id)) {
+            finalCards.push(card)
+          }
+        }
       }
     }
   }
 
-  // 3. Force integrate matched cards
-  const cardsContext = finalCards.map(c => `- ${c.front}: ${c.back}`).join('\n')
-  
-  const rewriteTemplate = settings['promptPracticeRewrite'] || DEFAULT_PROMPT_PRACTICE_REWRITE
-  const rewritePrompt = rewriteTemplate
-    .replace('{{cardsContext}}', cardsContext)
-    .replace('{{text}}', text)
-
-  const rewriteRes = await callAiApi(rewritePrompt, settings)
-  if (!rewriteRes.success || !rewriteRes.result) {
-    return { success: false, error: 'AI failed to rewrite text: ' + rewriteRes.error }
+  return {
+    success: true,
+    result: {
+      text: rewrittenText,
+      cards: finalCards
+    }
   }
-
-  return { success: true, result: { text: rewriteRes.result.trim(), cards: finalCards } }
 }
 
 export async function practiceAiVersion(text: string, settings: any) {
@@ -510,11 +715,9 @@ export function extractJsonArray(rawText: string): string[] | null {
     }
   } catch {}
 
-  // 4. Try lenient parsing: replace single quotes with double quotes, remove trailing commas
+  // 4. Try lenient parsing: replace delimiter single quotes with double quotes, remove trailing commas
   try {
-    const sanitized = cleaned
-      .replace(/'/g, '"')
-      .replace(/,\s*\]/g, ']')
+    const sanitized = sanitizeLenientJson(cleaned)
     const parsed = JSON.parse(sanitized)
     if (Array.isArray(parsed)) {
       return parsed.map(item => String(item).trim()).filter(Boolean)

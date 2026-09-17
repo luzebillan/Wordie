@@ -112,6 +112,9 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
           return next
         })
         
+        cardsToDelete.forEach(id => {
+          window.dispatchEvent(new CustomEvent('card-deleted', { detail: id }))
+        })
         window.dispatchEvent(new Event('stats-updated'))
       }
     } catch (error) {

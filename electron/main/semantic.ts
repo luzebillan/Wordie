@@ -1,23 +1,16 @@
 import { pipeline, env } from '@xenova/transformers';
 import path from 'node:path';
 import { app } from 'electron';
-import fs from 'node:fs';
 
 // Configure transformers.js environment for Electron
-// We store models in the user data directory so they persist across app updates
-const modelCacheDir = path.join(app.getPath('userData'), 'ai_models');
-if (!fs.existsSync(modelCacheDir)) {
-  fs.mkdirSync(modelCacheDir, { recursive: true });
-}
-
-env.cacheDir = modelCacheDir;
-
 let localModelPath = '';
-if (app.isPackaged) {
+if (app?.isPackaged) {
   // Models are unpacked to app.asar.unpacked so that native C++ ONNX runtime can read them
   localModelPath = path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), 'dist', 'models');
-} else {
+} else if (app?.getAppPath) {
   localModelPath = path.join(app.getAppPath(), 'public', 'models');
+} else {
+  localModelPath = path.join(process.cwd(), 'public', 'models');
 }
 
 env.allowLocalModels = true;
@@ -29,8 +22,8 @@ let initPromise: Promise<any> | null = null;
 
 /**
  * Initialize the feature extraction pipeline.
- * We use Xenova/all-MiniLM-L6-v2 because it's the gold standard for English 
- * semantic matching, small (around 22MB), and handles asymmetric queries well.
+ * We use Xenova/paraphrase-multilingual-MiniLM-L12-v2 for robust multilingual
+ * (English, Chinese, etc.) semantic sentence embeddings.
  */
 export async function initSemanticModel() {
   if (extractor) return extractor;
@@ -39,7 +32,7 @@ export async function initSemanticModel() {
   initPromise = new Promise(async (resolve, reject) => {
     try {
       // Create a feature-extraction pipeline
-      extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+      extractor = await pipeline('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', {
         quantized: true, // Use int8 quantization to save RAM
       });
       resolve(extractor);
@@ -61,10 +54,34 @@ export async function getEmbedding(text: string): Promise<number[]> {
   if (!extractor) await initSemanticModel();
   
   // Extract features (generate embedding)
-  // pooling: 'cls' gets the embedding for the whole sequence
+  // pooling: 'mean' computes mean pooling over token embeddings for sentence transformers
   // normalize: true L2-normalizes the vector, which means dot product == cosine similarity
-  const output = await extractor(text, { pooling: 'cls', normalize: true });
+  const output = await extractor(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data);
+}
+
+/**
+ * Generate embedding vectors for a batch of texts in a single forward pass.
+ * This runs SIMD/parallel inference across the batch, avoiding sequential invocation overhead.
+ */
+export async function getEmbeddingsBatch(texts: string[]): Promise<number[][]> {
+  if (!texts || texts.length === 0) return [];
+  if (!extractor) await initSemanticModel();
+
+  const safeTexts = texts.map(t => (t && t.trim()) ? t : ' ');
+  const output = await extractor(safeTexts, { pooling: 'mean', normalize: true });
+  const dim = output.dims[output.dims.length - 1];
+  const results: number[][] = [];
+  for (let i = 0; i < texts.length; i++) {
+    if (!texts[i] || !texts[i].trim()) {
+      results.push([]);
+    } else {
+      const start = i * dim;
+      const end = start + dim;
+      results.push(Array.from(output.data.subarray(start, end)));
+    }
+  }
+  return results;
 }
 
 /**

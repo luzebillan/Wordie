@@ -789,14 +789,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                     {renderPromptField('Glossary Definition', promptGlossary, setPromptGlossary, 'promptGlossary', 'Generates flashcard definitions. Placeholders: {{term}}, {{labels}}', Prompts.DEFAULT_PROMPT_GLOSSARY)}
                     {renderPromptField('Daily Word System Prompt', promptDailyWord, setPromptDailyWord, 'promptDailyWord', 'System persona for generating localized words from image or context.', Prompts.DEFAULT_PROMPT_DAILY_WORD)}
-                    {renderPromptField('Synonyms Strict Filter', promptSynonyms, setPromptSynonyms, 'promptSynonyms', 'Filters AI synonyms. Placeholders: {{targetFront}}, {{context}}, {{candidatesStr}}', Prompts.DEFAULT_PROMPT_SYNONYMS)}
+                    {renderPromptField('Synonyms Strict Filter', promptSynonyms, setPromptSynonyms, 'promptSynonyms', 'Filters AI synonyms. Placeholders: {{targetFront}}, {{targetBack}}, {{context}}, {{candidatesStr}}', Prompts.DEFAULT_PROMPT_SYNONYMS)}
                     {renderPromptField('Expression Generation', promptExpression, setPromptExpression, 'promptExpression', 'Creates concise English definitions. Placeholders: {{front}}, {{context}}', Prompts.DEFAULT_PROMPT_EXPRESSION)}
                     {renderPromptField('Revision Cloze', promptRevisionCloze, setPromptRevisionCloze, 'promptRevisionCloze', 'Creates cloze deletion sentences. Placeholders: {{display_phrase}}, {{back}}, {{clean_snippet}}, {{wordsToBlank}}', Prompts.DEFAULT_PROMPT_REVISION_CLOZE)}
                     
                     <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-6 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">Practice Module</h4>
                     {renderPromptField('Pure Listener', promptPureListener, setPromptPureListener, 'promptPureListener', 'Evaluates overall logic. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_PURE_LISTENER)}
                     {renderPromptField('Rewrite Extraction', promptPracticeExtract, setPromptPracticeExtract, 'promptPracticeExtract', 'Extracts target phrases for optimization. Placeholders: {{targetCount}}, {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_EXTRACT)}
-                    {renderPromptField('Rewrite Output', promptPracticeRewrite, setPromptPracticeRewrite, 'promptPracticeRewrite', 'Rewrites text integrating vocabulary. Placeholders: {{cardsContext}}, {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_REWRITE)}
+                    {renderPromptField('Rewrite Output', promptPracticeRewrite, setPromptPracticeRewrite, 'promptPracticeRewrite', 'Rewrites text integrating vocabulary bank expressions. Placeholders: {{vocabulary_bank}}, {{text}}', Prompts.DEFAULT_PROMPT_PRACTICE_REWRITE)}
                     {renderPromptField('AI Version', promptAiVersion, setPromptAiVersion, 'promptAiVersion', 'Generates flawless, concise, and idiomatic interpretation in the same language. Placeholders: {{text}}', Prompts.DEFAULT_PROMPT_AI_VERSION)}
                     {renderPromptField('Vocabulary Fusion', promptRewrite, setPromptRewrite, 'promptRewrite', 'Rephrases text using specific vocab. Placeholders: {{dbText}}, {{text}}', Prompts.DEFAULT_PROMPT_REWRITE)}
                   </div>

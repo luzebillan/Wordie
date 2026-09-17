@@ -39,6 +39,9 @@ process.env.APP_ROOT = path.join(__dirname, '../..')
 
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
+if (process.env.VITE_DEV_SERVER_URL) {
+  process.env.VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL.replace('localhost', '127.0.0.1')
+}
 export const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL

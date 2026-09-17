@@ -196,14 +196,17 @@ const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) =
     if (highlightedCards.length === 0) return resultText
 
     // Sort by length desc to match longest phrases first
-    const sortedWords = [...highlightedCards].sort((a, b) => (b.front || '').length - (a.front || '').length)
-    const escapedWords = sortedWords.map(c => (c.front || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    
-    const regex = new RegExp(`(\\b${escapedWords.join('|')}\\b)`, 'gi')
+    const sortedWords = [...highlightedCards]
+      .filter(c => c && typeof c.front === 'string' && c.front.trim().length > 0)
+      .sort((a, b) => b.front.trim().length - a.front.trim().length)
+    if (sortedWords.length === 0) return resultText
+
+    const escapedWords = sortedWords.map(c => c.front.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    const regex = new RegExp(`((?<![a-zA-Z0-9])(?:${escapedWords.join('|')})(?![a-zA-Z0-9]))`, 'gi')
     const parts = resultText.split(regex)
 
     return parts.map((part, i) => {
-      const matchedCard = sortedWords.find(c => (c.front || '').toLowerCase() === part.toLowerCase())
+      const matchedCard = sortedWords.find(c => (c.front || '').trim().toLowerCase() === part.trim().toLowerCase())
       if (matchedCard) {
         return (
           <button

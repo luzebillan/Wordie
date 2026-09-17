@@ -13,10 +13,20 @@ function getLogicalDayStart(now = new Date()): Date {
 export const reviewRepo = {
   getDueCards: (randomize: boolean = false) => {
     // 3:00 AM day boundary is naturally handled because nextReviewDate has exact times.
-    const now = new Date().toISOString()
-    const orderClause = randomize ? 'RANDOM()' : 'nextReviewDate ASC, id ASC'
-    const stmt = db.prepare(`SELECT * FROM cards WHERE nextReviewDate IS NULL OR datetime(nextReviewDate) <= datetime(?) ORDER BY ${orderClause}`)
-    return stmt.all(now)
+    const now = new Date()
+    const logicalDayStart = getLogicalDayStart(now)
+    const logicalDayStartStr = logicalDayStart.toISOString()
+    const nowIso = now.toISOString()
+    const orderClause = randomize ? 'RANDOM()' : 'c.nextReviewDate ASC, c.id ASC'
+    const stmt = db.prepare(`
+      SELECT c.* FROM cards c 
+      WHERE (c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?))
+      AND c.id NOT IN (
+        SELECT cardId FROM review_logs WHERE datetime(reviewDate) >= datetime(?)
+      )
+      ORDER BY ${orderClause}
+    `)
+    return stmt.all(nowIso, logicalDayStartStr)
   },
 
   getRandomCards: (limit: number = 8) => {
@@ -142,21 +152,31 @@ export const reviewRepo = {
     `)
     const toReview = (toReviewStmt.get(nowIso, logicalDayStartStr) as any).count
     
+    // Cards reviewed today where the latest review log today was correct
     const memorizedStmt = db.prepare(`
-      SELECT COUNT(DISTINCT c.id) as count
-      FROM cards c
-      JOIN review_logs r ON c.id = r.cardId
-      WHERE datetime(r.reviewDate) >= datetime(?) AND datetime(c.nextReviewDate) > datetime(?)
+      SELECT COUNT(*) as count
+      FROM review_logs r
+      JOIN cards c ON r.cardId = c.id
+      WHERE datetime(r.reviewDate) >= datetime(?)
+      AND r.isCorrect = 1
+      AND r.id = (
+        SELECT MAX(r2.id) FROM review_logs r2 WHERE r2.cardId = r.cardId AND datetime(r2.reviewDate) >= datetime(?)
+      )
     `)
-    const memorized = (memorizedStmt.get(logicalDayStartStr, nowIso) as any).count
+    const memorized = (memorizedStmt.get(logicalDayStartStr, logicalDayStartStr) as any).count
     
+    // Cards reviewed today where the latest review log today was incorrect (awaiting second review)
     const forgottenStmt = db.prepare(`
-      SELECT COUNT(DISTINCT c.id) as count
-      FROM cards c
-      JOIN review_logs r ON c.id = r.cardId
-      WHERE datetime(r.reviewDate) >= datetime(?) AND (c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?))
+      SELECT COUNT(*) as count
+      FROM review_logs r
+      JOIN cards c ON r.cardId = c.id
+      WHERE datetime(r.reviewDate) >= datetime(?)
+      AND r.isCorrect = 0
+      AND r.id = (
+        SELECT MAX(r2.id) FROM review_logs r2 WHERE r2.cardId = r.cardId AND datetime(r2.reviewDate) >= datetime(?)
+      )
     `)
-    const forgotten = (forgottenStmt.get(logicalDayStartStr, nowIso) as any).count
+    const forgotten = (forgottenStmt.get(logicalDayStartStr, logicalDayStartStr) as any).count
     
     return { memorized, forgotten, toReview }
   },
@@ -187,12 +207,22 @@ export const reviewRepo = {
     const logicalDayStartStr = logicalDayStart.toISOString()
     const nowIso = now.toISOString()
     
-    // Cards Reviewed Today (distinct cards reviewed in logical day)
-    const reviewedCountStmt = db.prepare(`SELECT COUNT(DISTINCT cardId) as count FROM review_logs WHERE datetime(reviewDate) >= datetime(?)`)
+    // Cards Reviewed Today (distinct cards reviewed in logical day that still exist)
+    const reviewedCountStmt = db.prepare(`
+      SELECT COUNT(DISTINCT r.cardId) as count 
+      FROM review_logs r 
+      JOIN cards c ON r.cardId = c.id 
+      WHERE datetime(r.reviewDate) >= datetime(?)
+    `)
     const reviewedCount = (reviewedCountStmt.get(logicalDayStartStr) as any).count
     
-    // Retention Rate Today (first tries in logical day)
-    const firstTriesStmt = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) as correct FROM review_logs WHERE datetime(reviewDate) >= datetime(?) AND isFirstTry = 1`)
+    // Retention Rate Today (first tries in logical day for existing cards)
+    const firstTriesStmt = db.prepare(`
+      SELECT COUNT(*) as total, SUM(CASE WHEN r.isCorrect = 1 THEN 1 ELSE 0 END) as correct 
+      FROM review_logs r 
+      JOIN cards c ON r.cardId = c.id 
+      WHERE datetime(r.reviewDate) >= datetime(?) AND r.isFirstTry = 1
+    `)
     const firstTriesData = firstTriesStmt.get(logicalDayStartStr) as any
     const retentionRate = firstTriesData.total > 0 ? (firstTriesData.correct / firstTriesData.total) * 100 : 0
     
