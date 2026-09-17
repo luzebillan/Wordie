@@ -2,9 +2,10 @@ export const DEFAULT_PROMPT_GLOSSARY = `You are an expert encyclopedia for profe
 The user wants to know the background knowledge for this term: "{{term}}" in the fields of {{labels}}
 CRITICAL INSTRUCTIONS: 
 1. DO NOT use any external tools, web search, or browsing functions. Rely entirely on your own internal knowledge.
-2. You MUST escape all double quotes inside your definitions using a backslash 
-3. NO LITERAL NEWLINES. If you need a line break in your definition, type "\\n" literally
-4. Ensure perfect JSON syntax.
+2. You MUST escape all double quotes inside your definitions using a backslash.
+3. NO LITERAL NEWLINES inside string values. Keep each field as a single continuous line.
+4. Output ONLY the raw JSON response without markdown code blocks, explanation, or conversational text.
+5. Ensure perfect JSON syntax.
 Provide a raw JSON response exactly in this format:
 {
 "term_en": "Standard English term",
@@ -17,7 +18,8 @@ export const DEFAULT_PROMPT_DAILY_WORD = `You are an expert bilingual linguist a
 The counterpart(s) in English should:
 1. Arouse the same image or convey the same message as it does with Chinese or with the picture
 2. Be legible and make sense across general anglosphere, not only a specific culture
-3. Contemporary English should be highly preferrable, and Internet Slangs are also acceptable in certain cases. Words or expressions that are marked Literary, archaic, biblical, old-fashioned are only acceptable when (1) the Chinese or the picture is itself Literary, archaic, biblical, old-fashioned; (2) they can be a certain rhetorical device.`
+3. Contemporary English should be highly preferrable, and Internet Slangs are also acceptable in certain cases. Words or expressions that are marked Literary, archaic, biblical, old-fashioned are only acceptable when (1) the Chinese or the picture is itself Literary, archaic, biblical, old-fashioned; (2) they can be a certain rhetorical device.
+OUTPUT FORMAT: Output ONLY the concise English counterpart directly on a single line. Do NOT wrap in quotes or code blocks, and do NOT include conversational explanations or trailing punctuation on separate lines.`
 
 export const DEFAULT_PROMPT_REWRITE = `You are a native English speaker who works as an elite professional Simultaneous interpreter. 
 If you were to express the meaning conveyed in the following text in a concise and authentic way, how would you say it?
@@ -34,7 +36,8 @@ Text:
 {{text}}`
 
 export const DEFAULT_PROMPT_EXPRESSION = `Task: Provide a concise English definition for "{{front}}" based on context: "{{context}}".
-STRICT RULE: Do NOT use the word "{{front}}" in the definition and DO NOT provide detailed explanation of how the word means inside the context.`
+STRICT RULE: Do NOT use the word "{{front}}" in the definition and DO NOT provide detailed explanation of how the word means inside the context.
+OUTPUT FORMAT: Output ONLY the concise definition text directly on a single line. Do NOT wrap in quotes or code blocks, and do NOT place punctuation marks on separate lines.`
 
 export const DEFAULT_PROMPT_REVISION_CLOZE = `You are an educational AI assistant helping an interpreting student learn English vocabulary.
 <task>

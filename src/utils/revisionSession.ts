@@ -48,16 +48,25 @@ export function initSessionQueue(cards: any[]): {
   queue: SessionCardItem[]
   statusMap: Map<number, CardReviewStatus>
 } {
-  const queue = (cards || []).map(card => createSessionItem(card))
+  const queue = (cards || []).map(card => {
+    const item = createSessionItem(card)
+    if (card.isSecondReview) {
+      item.isSecondReview = true
+    }
+    return item
+  })
   const statusMap = new Map<number, CardReviewStatus>()
   for (const card of cards || []) {
-    statusMap.set(card.id, 'toReview')
+    statusMap.set(card.id, card.isSecondReview ? 'secondReview' : 'toReview')
   }
   return { queue, statusMap }
 }
 
-export function computeSessionStats(statusMap: Map<number, CardReviewStatus>): SessionStats {
-  let memorized = 0
+export function computeSessionStats(
+  statusMap: Map<number, CardReviewStatus>,
+  initialMemorized: number = 0
+): SessionStats {
+  let memorized = initialMemorized
   let forgotten = 0
   let toReview = 0
   statusMap.forEach(status => {

@@ -105,6 +105,8 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     })
   }, [])
 
+  const [initialMemorized, setInitialMemorized] = useState(0)
+
   // 1. Initialize session queue ONCE upon app launch/mount
   useEffect(() => {
     if (sessionInitializedRef.current) return
@@ -113,7 +115,11 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     const initSession = async () => {
       setIsLoading(true)
       try {
-        const cards = await window.ipcRenderer.getDueCards()
+        const [cards, revStats] = await Promise.all([
+          window.ipcRenderer.getDueCards(),
+          window.ipcRenderer.getRevisionStats().catch(() => null)
+        ])
+        setInitialMemorized(revStats?.memorized || 0)
         const { queue, statusMap } = initSessionQueue(cards || [])
         setSessionQueue(queue)
         setCurrentIndex(0)
@@ -144,10 +150,31 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     } else {
       setSingleCard(null)
       setSingleCardFinished(false)
+      // When exiting single review, sync memorized count from DB
+      window.ipcRenderer.getRevisionStats().then(revStats => {
+        if (revStats) setInitialMemorized(revStats.memorized || 0)
+      }).catch(() => {})
     }
   }, [specificCardId])
 
-  // 3. Handle card deleted and stats-updated events
+  // 3. Auto-load due cards if returning to Revision tab and queue is empty or finished
+  useEffect(() => {
+    if (isActive && !specificCardId && (sessionQueue.length === 0 || currentIndex >= sessionQueue.length)) {
+      window.ipcRenderer.getDueCards().then(async (cards) => {
+        if (cards && cards.length > 0) {
+          const revStats = await window.ipcRenderer.getRevisionStats().catch(() => null)
+          setInitialMemorized(revStats?.memorized || 0)
+          const { queue, statusMap } = initSessionQueue(cards)
+          setSessionQueue(queue)
+          setCurrentIndex(0)
+          setCardStatusMap(statusMap)
+          setUndoStack([])
+        }
+      }).catch(() => {})
+    }
+  }, [isActive, specificCardId, sessionQueue.length, currentIndex])
+
+  // 4. Handle card deleted and external stats-updated events
   useEffect(() => {
     const handleCardDeleted = (e: any) => {
       const deletedId = e.detail
@@ -165,18 +192,24 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       })
     }
 
-    const handleStatsUpdated = async () => {
-      // If revision hasn't started yet or queue is empty, keep due queue refreshed
-      if (!specificCardId && ((currentIndex === 0 && undoStack.length === 0) || sessionQueue.length === 0)) {
+    const handleStatsUpdated = async (e: any) => {
+      // Ignore events dispatched from within this revision session
+      if (e?.detail?.source === 'revision-session') return
+      // If revision hasn't started yet, queue is empty, or session completed, keep due queue refreshed
+      if (!specificCardId && ((currentIndex === 0 && undoStack.length === 0) || sessionQueue.length === 0 || currentIndex >= sessionQueue.length)) {
         try {
-          const cards = await window.ipcRenderer.getDueCards()
+          const [cards, revStats] = await Promise.all([
+            window.ipcRenderer.getDueCards(),
+            window.ipcRenderer.getRevisionStats().catch(() => null)
+          ])
+          setInitialMemorized(revStats?.memorized || 0)
           const { queue, statusMap } = initSessionQueue(cards || [])
           setSessionQueue(queue)
           setCurrentIndex(0)
           setCardStatusMap(statusMap)
           setUndoStack([])
-        } catch (e) {
-          console.error('Failed to reload due cards on stats-updated:', e)
+        } catch (err) {
+          console.error('Failed to reload due cards on external stats-updated:', err)
         }
       }
     }
@@ -187,12 +220,12 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       window.removeEventListener('card-deleted', handleCardDeleted)
       window.removeEventListener('stats-updated', handleStatsUpdated)
     }
-  }, [specificCardId, currentIndex, undoStack.length, sessionQueue.length])
+  }, [currentIndex, specificCardId, undoStack.length, sessionQueue.length])
 
-  // Compute session stats directly derived from cardStatusMap
+  // Compute session stats directly derived from cardStatusMap and initial memorized count
   const stats = useMemo(() => {
-    return computeSessionStats(cardStatusMap)
-  }, [cardStatusMap])
+    return computeSessionStats(cardStatusMap, initialMemorized)
+  }, [cardStatusMap, initialMemorized])
 
   // Current active card item
   const currentCard = specificCardId 
@@ -379,7 +412,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       const rating = isCorrect ? getRatingForTime(timeToRecord) : 'again'
       await window.ipcRenderer.reviewCard(currentCard.id, isCorrect, rating, timeToRecord)
       setSingleCardFinished(true)
-      window.dispatchEvent(new Event('stats-updated'))
+      window.dispatchEvent(new CustomEvent('stats-updated', { detail: { source: 'revision-session' } }))
       return
     }
 
@@ -394,7 +427,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     setUndoStack(prev => [...prev, res.action])
 
     // Notify other components (Sidebar, Dashboard) to refresh stats
-    window.dispatchEvent(new Event('stats-updated'))
+    window.dispatchEvent(new CustomEvent('stats-updated', { detail: { source: 'revision-session' } }))
   }
 
   const handleUndo = async () => {
@@ -409,7 +442,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     setCurrentIndex(res.nextIndex)
     setCardStatusMap(res.nextStatusMap)
     setUndoStack(prev => prev.slice(0, -1))
-    window.dispatchEvent(new Event('stats-updated'))
+    window.dispatchEvent(new CustomEvent('stats-updated', { detail: { source: 'revision-session' } }))
   }
 
   const handleSaveEdit = async () => {
@@ -431,7 +464,11 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
   const handleCheckDueCards = async () => {
     setIsLoading(true)
     try {
-      const cards = await window.ipcRenderer.getDueCards()
+      const [cards, revStats] = await Promise.all([
+        window.ipcRenderer.getDueCards(),
+        window.ipcRenderer.getRevisionStats().catch(() => null)
+      ])
+      setInitialMemorized(revStats?.memorized || 0)
       const { queue, statusMap } = initSessionQueue(cards || [])
       setSessionQueue(queue)
       setCurrentIndex(0)
@@ -655,9 +692,19 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       <div className="h-full flex flex-col items-center justify-center animate-in zoom-in duration-500">
         <div className="text-6xl mb-6">🎉</div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">You're all caught up!</h2>
-        <p className="text-gray-500 dark:text-gray-400 text-center max-w-md mb-6">
+        <p className="text-gray-500 dark:text-gray-400 text-center max-w-md mb-4">
           You've finished all your reviews for today. Great job! Come back tomorrow or add some new cards.
         </p>
+        <div className="flex items-center gap-6 text-sm font-medium text-gray-500 mb-6 bg-gray-50 dark:bg-black/20 px-6 py-3 rounded-2xl border border-gray-100 dark:border-gray-800">
+          <span className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-gray-800 dark:bg-gray-200"></span>
+            Reviewed <strong className="text-gray-900 dark:text-gray-100">{stats.memorized}</strong>
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-400"></span>
+            Second Review <strong className="text-gray-900 dark:text-gray-100">{stats.forgotten}</strong>
+          </span>
+        </div>
         <button
           onClick={handleCheckDueCards}
           className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-sm transition-colors shadow-sm"

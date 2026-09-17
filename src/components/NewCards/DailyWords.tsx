@@ -82,7 +82,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
         type: 'Daily Words',
         front: front || '[Image Only]',
         back,
-        sourceContext: context,
+        sourceContext: '',
         imageUrl,
         label: ''
       })

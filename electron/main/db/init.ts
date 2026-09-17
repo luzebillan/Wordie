@@ -206,6 +206,17 @@ export function initDB() {
     console.error("[DB Migration] Legacy sourceContext clear check skipped/failed:", e);
   }
 
+  // Auto-clear legacy sourceContext for Daily Words cards
+  try {
+    const hasLegacyDailyWordsContext = db.prepare("SELECT 1 FROM cards WHERE type = 'Daily Words' AND sourceContext IS NOT NULL AND sourceContext != '' LIMIT 1").get();
+    if (hasLegacyDailyWordsContext) {
+      db.prepare("UPDATE cards SET sourceContext = NULL WHERE type = 'Daily Words'").run();
+      console.log("[DB Migration] Cleared legacy sourceContext for Daily Words cards.");
+    }
+  } catch (e) {
+    console.error("[DB Migration] Legacy sourceContext clear check for Daily Words skipped/failed:", e);
+  }
+
   // Trigger vector migration asynchronously
   migrateVectors().catch(console.error);
 }

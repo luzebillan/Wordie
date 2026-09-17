@@ -159,7 +159,7 @@ export const FuzzyMatchList: React.FC<FuzzyMatchListProps> = ({
                 {/* Card Footer: Review count & Quick review button */}
                 <div className="pt-2 mt-0.5 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between text-xs">
                   <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 select-none">
-                    {(card.repetitions || 0) + (card.manualReviewCount || 0)} Reviews
+                    {card.encounterCount !== undefined ? card.encounterCount : ((card.repetitions || 0) + (card.manualReviewCount || 0))} Reviews
                   </span>
                   <button
                     onClick={(e) => {

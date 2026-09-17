@@ -218,7 +218,7 @@ describe('practiceRewrite workflow', () => {
     }
   })
 
-  it('does not trigger fallback if model explicitly returned empty used_card_ids', async () => {
+  it('supplements cards used in rewritten_text even if model returned empty used_card_ids', async () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockImplementation(async () => {
       return {
@@ -245,7 +245,8 @@ describe('practiceRewrite workflow', () => {
 
       const res = await practiceRewrite('We delayed the meeting until Monday.', { aiKey: 'test-key' }, mockDbHandlers)
       expect(res.success).toBe(true)
-      expect(res.result.cards).toHaveLength(0)
+      expect(res.result.cards).toHaveLength(1)
+      expect(res.result.cards[0].id).toBe(42)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -491,6 +492,45 @@ describe('practiceRewrite workflow', () => {
 
     const appleTarget = targets.find(t => t.term.toLowerCase() === 'apple')
     expect(appleTarget?.card.id).toBe(3)
+  })
+
+  it('supplements cards used in rewritten_text when AI only returned a partial ID list', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                rewritten_text: "Let kids call the shots as if their desires are the be-all and end-all. First, be tuned in to their boundaries.",
+                used_card_ids: [1] // AI only returned ID 1!
+              })
+            }
+          }]
+        })
+      }
+    }) as any
+
+    try {
+      const mockDbHandlers = {
+        getCards: vi.fn().mockReturnValue([
+          { id: 1, front: 'call the shots', back: 'make decisions' },
+          { id: 2, front: 'the be-all and end-all', back: 'most important thing' },
+          { id: 400, front: 'be tuned in to sth.', back: 'be sensitive to' }
+        ])
+      }
+
+      const res = await practiceRewrite('Let kids decide everything. First, listen to them.', { aiKey: 'test-key' }, mockDbHandlers)
+      expect(res.success).toBe(true)
+      expect(res.result.cards).toHaveLength(3)
+      const ids = res.result.cards.map((c: any) => c.id)
+      expect(ids).toContain(1)
+      expect(ids).toContain(2)
+      expect(ids).toContain(400)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
 

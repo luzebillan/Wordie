@@ -18,7 +18,7 @@ interface Window {
     resetCardsProgress: (ids: number[]) => Promise<{ success: boolean; error?: string }>
     reviewCard: (id: number, isCorrect: boolean, rating?: 'again' | 'hard' | 'good' | 'easy' | 1 | 2 | 3 | 4, elapsedTime?: number) => Promise<{ success: boolean; logId?: number; error?: string }>
     getStats: () => Promise<any>
-    getStatsByType: (type: string) => Promise<{ cardsReviewed: number; cardsToReview: number }>
+    getStatsByType: (type: string) => Promise<{ cardsReviewed: number; cardsToReview: number; secondReview?: number }>
     getRevisionStats: () => Promise<{ memorized: number; forgotten: number; toReview: number }>
     undoReview: () => Promise<{ success: boolean; error?: string }>
     getTaxonomyCounts: () => Promise<{ success: boolean; domainCounts: Record<string, number>; fieldCounts: Record<string, number>; totalGlossaryCards: number; error?: string }>

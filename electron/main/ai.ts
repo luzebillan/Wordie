@@ -15,6 +15,304 @@ import {
   DEFAULT_PROMPT_AI_VERSION,
   DEFAULT_PROMPT_SYNONYMS
 } from '../../src/constants/prompts'
+import { isCardInText } from '../../src/utils/expressionMatcher'
+
+export function escapeUnescapedControlCharsInJson(str: string): string {
+  let inString = false
+  let isEscaped = false
+  let result = ''
+  const stack: ('{' | '[')[] = []
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i]
+
+    if (isEscaped) {
+      result += char
+      isEscaped = false
+      continue
+    }
+
+    if (char === '\\') {
+      result += char
+      isEscaped = true
+      continue
+    }
+
+    if (!inString) {
+      if (char === '{' || char === '[') {
+        stack.push(char)
+        result += char
+        continue
+      } else if (char === '}' || char === ']') {
+        if (stack.length > 0) stack.pop()
+        result += char
+        continue
+      } else if (char === '"') {
+        inString = true
+        result += char
+        continue
+      } else {
+        if (char.charCodeAt(0) < 0x20 && char !== '\n' && char !== '\r' && char !== '\t') {
+          // Skip illegal non-whitespace control character outside strings
+        } else {
+          result += char
+        }
+        continue
+      }
+    }
+
+    // Inside string: check if char === '"'
+    if (char === '"') {
+      const rest = str.slice(i + 1)
+      const currentContext = stack[stack.length - 1]
+
+      let isDelimiter = false
+      if (currentContext === '[') {
+        // Inside array: closing quote of an element is followed by comma, closing bracket, or end of input
+        isDelimiter = /^\s*(?:,|\]|$)/.test(rest)
+      } else if (currentContext === '{') {
+        // Inside object:
+        // Could be closing quote of key (followed by colon ':')
+        // Or closing quote of value (followed by comma + next key, or closing brace '}')
+        isDelimiter = /^\s*(?::|,\s*(?:["']?[a-zA-Z0-9_\u4e00-\u9fa5]+["']?\s*:|[}\]])|[}]|$)/.test(rest)
+      } else {
+        // Root level
+        isDelimiter = /^\s*(?:,|:|[}\]]|$)/.test(rest)
+      }
+
+      if (isDelimiter) {
+        inString = false
+        result += char
+      } else {
+        // Interior unescaped quote: escape it to preserve valid JSON
+        result += '\\"'
+      }
+      continue
+    }
+
+    // Control characters inside strings
+    if (char === '\n') {
+      result += '\\n'
+    } else if (char === '\r') {
+      result += '\\r'
+    } else if (char === '\t') {
+      result += '\\t'
+    } else if (char.charCodeAt(0) < 0x20) {
+      result += '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')
+    } else {
+      result += char
+    }
+  }
+
+  return result
+}
+
+export function cleanGlossaryLine(str: string, isEnglish: boolean = false): string {
+  if (!str) return ''
+  let cleaned = String(str).trim()
+
+  // 1. Join CJK characters broken across newlines/whitespace (e.g., "第一\n  届" -> "第一届")
+  cleaned = cleaned.replace(/([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])\s*[\r\n]+\s*(?=[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])/g, '$1')
+
+  // 2. Join hyphenated words broken across newlines (e.g., "adminis-\n  tration" -> "administration")
+  cleaned = cleaned.replace(/([a-zA-Z])-\s*[\r\n]+\s*([a-zA-Z])/g, '$1$2')
+
+  // 3. Fix orphaned punctuation separated by newlines (e.g. "debate\n." -> "debate.")
+  cleaned = cleaned.replace(/\s*[\r\n]+\s*([.,;:?!，。；：？！])/g, '$1')
+
+  // 4. Join English words broken across newlines with a single space
+  cleaned = cleaned.replace(/([a-zA-Z0-9.,;:?!])\s*[\r\n]+\s*([a-zA-Z0-9])/g, '$1 $2')
+
+  // 5. Replace any remaining newlines with a space
+  cleaned = cleaned.replace(/[\r\n]+/g, ' ')
+
+  // 6. Join consecutive CJK characters separated by spaces (e.g. "卡 什 · 帕 特 尔" -> "卡什·帕特尔")
+  // Using lookahead so every consecutive pair is matched without skipping alternate characters
+  cleaned = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1')
+
+  // 7. Remove spaces between CJK characters and punctuation, or between CJK punctuation marks
+  cleaned = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=[，。！？；：、“”‘’（）《》·])/g, '$1')
+  cleaned = cleaned.replace(/([，。！？；：、“”‘’（）《》·])\s+(?=[\u4e00-\u9fa5])/g, '$1')
+  cleaned = cleaned.replace(/([，。！？；：、“”‘’（）《》·])\s+(?=[，。！？；：、“”‘’（）《》·])/g, '$1')
+
+  // 8. Remove stray horizontal whitespace before punctuation marks (e.g. "word ." -> "word.")
+  cleaned = cleaned.replace(/(\S)[ \t]+([.,;:?!，。；：？！])/g, '$1$2')
+
+  // 9. Collapse multiple dots
+  cleaned = cleaned.replace(/\.{4,}/g, '...')
+  cleaned = cleaned.replace(/(?<!\.)\.\.(?!\.)/g, '.')
+
+  // 10. Collapse multiple spaces into one space
+  cleaned = cleaned.replace(/[ \t]+/g, ' ')
+
+  return cleaned.trim()
+}
+
+export const GLOSSARY_FIELD_ALIASES: Record<'term_cn' | 'term_en' | 'def_cn' | 'def_en', string[]> = {
+  term_cn: ['term_cn', 'termCn', 'term_zh', 'chinese_term', 'term_chinese', 'chineseTerm', 'chinese', '中文术语', '中文'],
+  term_en: ['term_en', 'termEn', 'english_term', 'term_english', 'englishTerm', 'english', 'term', '英文术语', '英文'],
+  def_cn: ['def_cn', 'defCn', 'def_zh', 'chinese_def', 'def_chinese', 'chineseDef', 'definition_cn', 'definition_zh', 'chinese_definition', '中文定义', '中文解释', '中文释义'],
+  def_en: ['def_en', 'defEn', 'english_def', 'def_english', 'englishDef', 'definition_en', 'english_definition', 'definition', '英文定义', '英文解释', '英文释义']
+}
+
+export function extractGlossaryFieldsFromText(text: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  const allAliases = Object.values(GLOSSARY_FIELD_ALIASES).flat()
+  const allAliasesPattern = allAliases.map(a => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+
+  for (const [targetKey, aliases] of Object.entries(GLOSSARY_FIELD_ALIASES)) {
+    for (const alias of aliases) {
+      const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      // Match key with optional quotes/asterisks/bullets, followed by colon or equal sign
+      const pattern = new RegExp(
+        `(?:^|[\\r\\n,{]\\s*)[*"-]*\\s*${escapedAlias}\\s*[*"-]*\\s*[:=]\\s*(?:"|'|“)?([\\s\\S]*?)(?=(?:["'”]?\\s*[,;\\r\\n]+\\s*[*"-]*\\s*(?:${allAliasesPattern})\\s*[*"-]*\\s*[:=])|["'”]?\\s*\\}\\s*$|$)`,
+        'i'
+      )
+      const match = text.match(pattern)
+      if (match && match[1] && match[1].trim()) {
+        let val = match[1].trim()
+        // Strip trailing comma or quote
+        val = val.replace(/^[ "“']+/, '').replace(/[ "”',]+$/, '')
+        val = val.replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/\\n/g, '\n').replace(/\\r/g, '')
+        result[targetKey] = val
+        break
+      }
+    }
+  }
+
+  return result
+}
+
+export function alignTermWithUserTerm(modelTerm: string, userTerm: string): string {
+  const cleanModel = modelTerm.trim()
+  const cleanUser = userTerm.trim()
+  if (!cleanUser || !cleanModel) return cleanModel
+
+  if (cleanModel === cleanUser) return cleanModel
+
+  const modelNoSpace = cleanModel.replace(/\s+/g, '')
+  const userNoSpace = cleanUser.replace(/\s+/g, '')
+  if (modelNoSpace.toLowerCase() !== userNoSpace.toLowerCase()) {
+    return cleanModel
+  }
+
+  // If user provided Chinese / CJK characters, userTerm is safe to use directly
+  if (/[\u4e00-\u9fa5]/.test(cleanUser)) {
+    return cleanUser
+  }
+
+  const userWords = cleanUser.split(/\s+/)
+  let modelCharIndex = 0
+  const modelChars = Array.from(modelNoSpace)
+  const userChars = Array.from(userNoSpace)
+
+  const reconstructedWords: string[] = []
+  for (const word of userWords) {
+    const wordLen = Array.from(word).length
+    const sliceModel = modelChars.slice(modelCharIndex, modelCharIndex + wordLen)
+    const sliceUser = userChars.slice(modelCharIndex, modelCharIndex + wordLen)
+    modelCharIndex += wordLen
+
+    let reconstructedWord = ''
+    for (let i = 0; i < wordLen; i++) {
+      const mCh = sliceModel[i] || ''
+      const uCh = sliceUser[i] || ''
+      if (mCh.toUpperCase() !== mCh.toLowerCase() && mCh === mCh.toUpperCase()) {
+        reconstructedWord += mCh
+      } else if (uCh.toUpperCase() !== uCh.toLowerCase() && uCh === uCh.toUpperCase()) {
+        reconstructedWord += uCh
+      } else {
+        reconstructedWord += mCh || uCh
+      }
+    }
+    reconstructedWords.push(reconstructedWord)
+  }
+
+  return reconstructedWords.join(' ')
+}
+
+export function parseGlossaryResponse(
+  rawText: string,
+  userTerm?: string
+): { front: string; back: string } | null {
+  if (!rawText || !rawText.trim()) return null
+
+  let cleaned = rawText.trim()
+
+  // 1. Strip markdown code fence if present
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim()
+  }
+
+  // 2. Extract outermost JSON object { ... }
+  const firstBrace = cleaned.indexOf('{')
+  const lastBrace = cleaned.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1)
+  }
+
+  let data: any = null
+
+  // 3. Try standard JSON.parse
+  try {
+    data = JSON.parse(cleaned)
+  } catch {}
+
+  // 4. Try escaping unescaped newlines/control characters/internal quotes
+  if (!data) {
+    try {
+      const escaped = escapeUnescapedControlCharsInJson(cleaned)
+      data = JSON.parse(escaped)
+    } catch {}
+  }
+
+  // 5. Try lenient sanitization (trailing commas, quotes, etc.)
+  if (!data) {
+    try {
+      const sanitized = sanitizeLenientJson(escapeUnescapedControlCharsInJson(cleaned))
+      data = JSON.parse(sanitized)
+    } catch {}
+  }
+
+  // 6. Regex field extraction fallback for unquoted / markdown / malformed responses
+  if (!data || typeof data !== 'object') {
+    data = extractGlossaryFieldsFromText(cleaned)
+  }
+
+  if (!data) return null
+
+  let termCn = data.term_cn || data.termCn || data.chinese_term || data.term_zh || ''
+  let termEn = data.term_en || data.termEn || data.english_term || data.term || ''
+  let defCn = data.def_cn || data.defCn || data.chinese_def || data.definition_cn || data.def_zh || ''
+  let defEn = data.def_en || data.defEn || data.english_def || data.definition_en || ''
+
+  termCn = cleanGlossaryLine(termCn, false)
+  termEn = cleanGlossaryLine(termEn, true)
+  defCn = cleanGlossaryLine(defCn, false)
+  defEn = cleanGlossaryLine(defEn, true)
+
+  // Align userTerm if provided
+  if (userTerm && userTerm.trim()) {
+    termEn = alignTermWithUserTerm(termEn, userTerm)
+    termCn = alignTermWithUserTerm(termCn, userTerm)
+  }
+
+  if (!termCn && !termEn && !defCn && !defEn) {
+    return null
+  }
+
+  // Fallbacks to ensure neither line is blank
+  if (!termCn && termEn) termCn = termEn
+  if (!termEn && termCn) termEn = termCn
+  if (!defCn && defEn) defCn = defEn
+  if (!defEn && defCn) defEn = defCn
+
+  return {
+    front: `${termCn}\n${termEn}`,
+    back: `${defCn}\n${defEn}`
+  }
+}
 
 export async function aiGenerateGlossary(
   labels: string[],
@@ -28,17 +326,10 @@ export async function aiGenerateGlossary(
   const res = await callAiApi(prompt, settings)
   if (!res.success) return res
 
-  try {
-    let jsonStr = res.result || ''
-    const match = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-    if (match) {
-      jsonStr = match[1]
-    }
-    const data = JSON.parse(jsonStr)
-    const frontStr = `${data.term_cn}\n${data.term_en}`
-    const backStr = `${data.def_cn}\n${data.def_en}`
-    return { success: true, result: JSON.stringify({ front: frontStr, back: backStr }) }
-  } catch (err: any) {
+  const parsed = parseGlossaryResponse(res.result || '', term)
+  if (parsed) {
+    return { success: true, result: JSON.stringify(parsed) }
+  } else {
     return { success: false, error: 'Failed to parse AI response as JSON: ' + (res.result || '') }
   }
 }
@@ -145,7 +436,7 @@ export async function aiGenerateDailyWord(
     const result = data.choices?.[0]?.message?.content?.trim()
     if (!result) return { success: false, error: 'API returned an empty response.' }
 
-    return { success: true, result }
+    return { success: true, result: cleanAiExpression(result) }
   } catch (err: any) {
     return { success: false, error: err.message || 'Network error occurred.' }
   }
@@ -227,6 +518,132 @@ async function callAiApi(prompt: string, settings: Record<string, string>) {
   return { success: false, error: `${lastError?.name === 'TimeoutError' ? 'Request timed out' : lastError?.message || 'Network error occurred'}${cause}` }
 }
 
+export function isFullyWrappedInQuotes(str: string): { isWrapped: boolean; inner: string; trailingPunct: string } {
+  const s = str.trim()
+  if (s.length < 2) return { isWrapped: false, inner: s, trailingPunct: '' }
+
+  const quotePairs: [string, string][] = [
+    ['"', '"'],
+    ["'", "'"],
+    ['“', '”'],
+    ['`', '`'],
+    ['‘', '’'],
+    ['«', '»']
+  ]
+
+  for (const [openQ, closeQ] of quotePairs) {
+    if (s.startsWith(openQ)) {
+      const trailingPunctMatch = s.match(/([.,;:?!，。；：？！]?)$/)
+      const trailingPunct = trailingPunctMatch ? trailingPunctMatch[1] : ''
+      const endWithoutPunct = s.slice(0, s.length - trailingPunct.length)
+
+      if (endWithoutPunct.endsWith(closeQ) && endWithoutPunct.length >= openQ.length + closeQ.length) {
+        const innerCandidate = endWithoutPunct.slice(openQ.length, endWithoutPunct.length - closeQ.length)
+        
+        // Find the first unescaped occurrence of closeQ in innerCandidate
+        let firstCloseIndex = -1
+        let isEsc = false
+        for (let i = 0; i < innerCandidate.length; i++) {
+          const ch = innerCandidate[i]
+          if (isEsc) {
+            isEsc = false
+            continue
+          }
+          if (ch === '\\') {
+            isEsc = true
+            continue
+          }
+          if (ch === closeQ) {
+            firstCloseIndex = i
+            break
+          }
+        }
+
+        // If closeQ does not appear unescaped in innerCandidate, it is fully wrapped by this pair
+        if (firstCloseIndex === -1) {
+          return { isWrapped: true, inner: innerCandidate.trim(), trailingPunct }
+        }
+      }
+    }
+  }
+
+  return { isWrapped: false, inner: s, trailingPunct: '' }
+}
+
+export function stripWrappingQuotes(str: string): string {
+  let s = str.trim()
+
+  const { isWrapped, inner, trailingPunct } = isFullyWrappedInQuotes(s)
+  if (isWrapped) {
+    if (trailingPunct && /[.,;:?!，。；：？！]$/.test(inner)) {
+      s = inner
+    } else {
+      s = inner + trailingPunct
+    }
+  }
+
+  // Strip lone unbalanced outer quotation marks if the interior doesn't contain matching quotes
+  if (s.startsWith('"') && !s.slice(1).includes('"')) s = s.slice(1).trim()
+  if (s.startsWith('“') && !s.slice(1).includes('”')) s = s.slice(1).trim()
+  if (s.endsWith('"') && !s.slice(0, -1).includes('"')) s = s.slice(0, -1).trim()
+  if (s.endsWith('”') && !s.slice(0, -1).includes('“')) s = s.slice(0, -1).trim()
+  return s
+}
+
+export function cleanAiExpression(raw: string): string {
+  if (!raw) return ''
+  let cleaned = raw.trim()
+
+  // 1. Strip markdown code fence if present
+  const codeBlockMatch = cleaned.match(/^```(?:[a-zA-Z]+)?\s*([\s\S]*?)\s*```$/)
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim()
+  } else {
+    const innerCodeBlock = cleaned.match(/```(?:[a-zA-Z]+)?\s*([\s\S]*?)\s*```/)
+    if (innerCodeBlock) {
+      cleaned = innerCodeBlock[1].trim()
+    }
+  }
+
+  // 2. Strip boilerplate prefixes (e.g. "Definition: ...", "Meaning: ...", "Translation: ...")
+  cleaned = cleaned.replace(/^(?:definition|meaning|explanation|translation|answer)\s*:\s*/i, '')
+
+  // 3. Strip leading bullet markers or list numbers (e.g. "- ", "* ", "• ", "1. ", "1) ")
+  cleaned = cleaned.replace(/^[-*•]\s+/, '')
+  cleaned = cleaned.replace(/^(?:\d+[\.\)]|\([0-9]+\))\s+/, '')
+
+  // 4. Drop redundant punctuation across quotes (e.g. 'law."\n.' -> 'law."')
+  cleaned = cleaned.replace(/([.,;:?!，。；：？！])(["'”`])\s*[\r\n]+\s*[.,;:?!，。；：？！]+/g, '$1$2')
+
+  // 5. Strip surrounding quotes if wrapped
+  cleaned = stripWrappingQuotes(cleaned)
+
+  // 6. If previous text already ends with punctuation, drop redundant punctuation on newline
+  cleaned = cleaned.replace(/([.,;:?!，。；：？！])\s*[\r\n]+\s*[.,;:?!，。；：？！]+/g, '$1')
+
+  // 7. Fix orphaned punctuation separated by newlines (e.g. "debate\n." -> "debate.")
+  cleaned = cleaned.replace(/\s*[\r\n]+\s*([.,;:?!，。；：？！])/g, '$1')
+
+  // 8. Remove stray horizontal whitespace before punctuation marks (e.g. "debate ." -> "debate.")
+  cleaned = cleaned.replace(/(\S)[ \t]+([.,;:?!，。；：？！])/g, '$1$2')
+
+  // 9. Collapse all remaining newlines into a single space (concise definitions should not contain artificial soft wraps)
+  cleaned = cleaned.replace(/\s*[\r\n]+\s*/g, ' ')
+
+  // 10. Collapse accidental duplicate dots/commas (preserving standard ellipsis "...")
+  cleaned = cleaned.replace(/([,;:?!，。；：？！])\1+/g, '$1')
+  cleaned = cleaned.replace(/\.{4,}/g, '...')
+  cleaned = cleaned.replace(/(?<!\.)\.\.(?!\.)/g, '.')
+
+  // 11. Re-strip surrounding/lone quotes in case punctuation or newline cleanup exposed them
+  cleaned = stripWrappingQuotes(cleaned)
+
+  // 12. Clean excess horizontal whitespace
+  cleaned = cleaned.replace(/[ \t]+/g, ' ').trim()
+
+  return cleaned
+}
+
 export async function aiGenerateExpression(
   context: string,
   style: string,
@@ -238,7 +655,10 @@ export async function aiGenerateExpression(
     .replace(/{{front}}/g, front)
     .replace('{{context}}', context)
 
-  return await callAiApi(prompt, settings)
+  const res = await callAiApi(prompt, settings)
+  if (!res.success || !res.result) return res
+
+  return { success: true, result: cleanAiExpression(res.result) }
 }
 
 export function formatSketchEnginePhrase(front: string): { cleanPhrase: string; searchWords: string[]; cqlTokens: string[] } {
@@ -423,6 +843,18 @@ export function extractJsonObjects<T = any>(rawText: string): T[] | null {
     if (Array.isArray(parsed)) return parsed
   } catch {}
 
+  try {
+    const escaped = escapeUnescapedControlCharsInJson(cleaned)
+    const parsed = JSON.parse(escaped)
+    if (Array.isArray(parsed)) return parsed
+  } catch {}
+
+  try {
+    const sanitized = sanitizeLenientJson(escapeUnescapedControlCharsInJson(cleaned))
+    const parsed = JSON.parse(sanitized)
+    if (Array.isArray(parsed)) return parsed
+  } catch {}
+
   return null
 }
 
@@ -448,6 +880,18 @@ export function extractJsonObject<T = any>(rawText: string): T | null {
 
   try {
     const sanitized = sanitizeLenientJson(cleaned)
+    const parsed = JSON.parse(sanitized)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed
+  } catch {}
+
+  try {
+    const escaped = escapeUnescapedControlCharsInJson(cleaned)
+    const parsed = JSON.parse(escaped)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed
+  } catch {}
+
+  try {
+    const sanitized = sanitizeLenientJson(escapeUnescapedControlCharsInJson(cleaned))
     const parsed = JSON.parse(sanitized)
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed
   } catch {}
@@ -662,21 +1106,29 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     rewrittenText = rewrittenText.slice(1, -1).trim()
   }
 
-  // Fallback: If no cards matched by ID and model omitted used_card_ids, detect if candidate expressions were newly integrated in rewrittenText
-  if ((!parsed || (parsed.used_card_ids === undefined && parsed.usedCardIds === undefined)) && finalCards.length === 0 && candidateCards.length > 0) {
+  // Scan rewrittenText for integrated expressions from candidate cards and the entire library.
+  // Supplement finalCards with any expressions present in rewrittenText so they are reliably highlighted.
+  const allLibraryCards = (dbHandlers.getCards ? dbHandlers.getCards() : allCards) || []
+  const checkedCardIds = new Set<number>(finalCards.map(c => c.id))
+
+  // First check candidate cards (prioritized)
+  if (candidateCards && candidateCards.length > 0) {
     for (const card of candidateCards) {
-      const lines = String(card.front || '').split(/\r?\n/).map(l => l.replace(/\*/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean)
-      for (const cleanFront of lines) {
-        if (cleanFront.length >= 2 || (cleanFront.length >= 1 && /[\p{Unified_Ideograph}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(cleanFront))) {
-          const escapedFront = cleanFront.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          const regex = new RegExp(`(?<![a-zA-Z0-9])${escapedFront}(?![a-zA-Z0-9])`, 'i')
-          if (regex.test(rewrittenText) && !regex.test(text)) {
-            if (!finalCards.some(c => c.id === card.id)) {
-              finalCards.push(card)
-            }
-            break
-          }
-        }
+      if (checkedCardIds.has(card.id)) continue
+      checkedCardIds.add(card.id)
+      if (isCardInText(card, rewrittenText)) {
+        finalCards.push(card)
+      }
+    }
+  }
+
+  // Also check remaining library cards so any card in the user's database is highlighted if used
+  if (allLibraryCards && allLibraryCards.length > 0) {
+    for (const card of allLibraryCards) {
+      if (checkedCardIds.has(card.id)) continue
+      checkedCardIds.add(card.id)
+      if (isCardInText(card, rewrittenText)) {
+        finalCards.push(card)
       }
     }
   }
@@ -729,6 +1181,22 @@ export function extractJsonArray(rawText: string): string[] | null {
   // 4. Try lenient parsing: replace delimiter single quotes with double quotes, remove trailing commas
   try {
     const sanitized = sanitizeLenientJson(cleaned)
+    const parsed = JSON.parse(sanitized)
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => String(item).trim()).filter(Boolean)
+    }
+  } catch {}
+
+  try {
+    const escaped = escapeUnescapedControlCharsInJson(cleaned)
+    const parsed = JSON.parse(escaped)
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => String(item).trim()).filter(Boolean)
+    }
+  } catch {}
+
+  try {
+    const sanitized = sanitizeLenientJson(escapeUnescapedControlCharsInJson(cleaned))
     const parsed = JSON.parse(sanitized)
     if (Array.isArray(parsed)) {
       return parsed.map(item => String(item).trim()).filter(Boolean)

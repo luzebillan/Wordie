@@ -141,11 +141,6 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
             <div className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">
               {card.front}
             </div>
-            {card.sourceContext && (
-              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
-                {card.sourceContext}
-              </div>
-            )}
           </div>
         )
       }
@@ -350,7 +345,7 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
               {/* Card Meta & Actions */}
               <div className="flex items-center justify-between pt-4 border-t border-gray-100 dark:border-gray-800/80 text-xs text-gray-400">
                 <div className="flex items-center gap-3">
-                  <span>{(card.repetitions || 0) + (card.manualReviewCount || 0)} Reviews</span>
+                  <span>{(card.encounterCount !== undefined ? card.encounterCount : ((card.repetitions || 0) + (card.manualReviewCount || 0)))} Reviews</span>
                   <span>•</span>
                   <span>{card.useCount || 0} Uses</span>
                 </div>

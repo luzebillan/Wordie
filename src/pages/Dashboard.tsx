@@ -19,7 +19,7 @@ export const Dashboard: React.FC = () => {
   const [viewProps, setViewProps] = useState<any>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [newCardsTab, setNewCardsTab] = useState('Useful Expressions')
-  const [stats, setStats] = useState({ cardsReviewed: 0, cardsToReview: 0 })
+  const [stats, setStats] = useState({ cardsReviewed: 0, cardsToReview: 0, secondReview: 0 })
   const [previewCardId, setPreviewCardId] = useState<number | null>(null)
   const [previewContext, setPreviewContext] = useState<'practice' | 'default'>('default')
   const [previewEditMode, setPreviewEditMode] = useState(false)
@@ -30,25 +30,23 @@ export const Dashboard: React.FC = () => {
   const fetchStats = async () => {
     try {
       const data = await window.ipcRenderer.getStatsByType(newCardsTab)
-      setStats(data)
+      setStats({
+        cardsReviewed: data.cardsReviewed || 0,
+        cardsToReview: data.cardsToReview || 0,
+        secondReview: data.secondReview || 0
+      })
     } catch (err) {
       console.error(err)
     }
   }
 
   React.useEffect(() => {
-    if (currentView === 'new-cards') {
+    fetchStats()
+    const handleStatsUpdated = () => {
       fetchStats()
     }
-    const handleStatsUpdated = () => {
-      if (currentView === 'new-cards') {
-        fetchStats()
-      }
-    }
     const handleCardDeleted = () => {
-      if (currentView === 'new-cards') {
-        fetchStats()
-      }
+      fetchStats()
     }
     const handleShowToast = (e: any) => {
       setToast({ message: e.detail.message, type: e.detail.type || 'success' })
@@ -154,17 +152,33 @@ export const Dashboard: React.FC = () => {
                   <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
                   Reviewed {stats.cardsReviewed}
                 </span>
+                {stats.secondReview > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                    Second Review {stats.secondReview}
+                  </span>
+                )}
                 <span className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
                   To Review {stats.cardsToReview}
                 </span>
               </div>
-              <div className="h-0.5 w-full bg-gray-200 dark:bg-gray-800 flex">
-                {stats.cardsReviewed + stats.cardsToReview > 0 ? (
-                  <div 
-                    className="bg-gray-400 dark:bg-gray-500 h-full transition-all duration-500" 
-                    style={{ width: `${(stats.cardsReviewed / (stats.cardsReviewed + stats.cardsToReview)) * 100}%` }}
-                  />
+              <div className="h-0.5 w-full bg-gray-200 dark:bg-gray-800 flex overflow-hidden rounded-full">
+                {stats.cardsReviewed + (stats.secondReview || 0) + stats.cardsToReview > 0 ? (
+                  <>
+                    <div 
+                      className="bg-gray-400 dark:bg-gray-500 h-full transition-all duration-500" 
+                      style={{ width: `${(stats.cardsReviewed / (stats.cardsReviewed + (stats.secondReview || 0) + stats.cardsToReview)) * 100}%` }} 
+                    />
+                    <div 
+                      className="bg-red-400 h-full transition-all duration-500" 
+                      style={{ width: `${((stats.secondReview || 0) / (stats.cardsReviewed + (stats.secondReview || 0) + stats.cardsToReview)) * 100}%` }} 
+                    />
+                    <div 
+                      className="bg-gray-200 dark:bg-gray-700 h-full transition-all duration-500" 
+                      style={{ width: `${(stats.cardsToReview / (stats.cardsReviewed + (stats.secondReview || 0) + stats.cardsToReview)) * 100}%` }} 
+                    />
+                  </>
                 ) : (
                   <div className="bg-gray-400 dark:bg-gray-500 h-full w-0" />
                 )}

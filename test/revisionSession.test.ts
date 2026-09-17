@@ -187,4 +187,115 @@ describe('Revision Session State Machine', () => {
     expect(synced[1].front).toBe('New Front')
     expect(synced[1].back).toBe('New Back')
   })
+
+  it('TC-12: Initializes cards awaiting second review with status secondReview and isSecondReview flag', () => {
+    const mixedCards = [
+      { id: 1, front: 'Card 1', back: 'B1', isSecondReview: 0 },
+      { id: 2, front: 'Card 2', back: 'B2', isSecondReview: 1 }
+    ]
+    const { queue, statusMap } = initSessionQueue(mixedCards)
+    expect(queue).toHaveLength(2)
+    expect(queue[0].isSecondReview).toBeFalsy()
+    expect(queue[1].isSecondReview).toBe(true)
+
+    expect(statusMap.get(1)).toBe('toReview')
+    expect(statusMap.get(2)).toBe('secondReview')
+
+    const stats = computeSessionStats(statusMap, 5) // 5 previously memorized today
+    expect(stats.memorized).toBe(5)
+    expect(stats.forgotten).toBe(1)
+    expect(stats.toReview).toBe(1)
+  })
+
+  it('TC-13: Accurately reflects review increments on top of initial memorized count', () => {
+    const cards = [{ id: 1, front: 'C1', back: 'B1' }]
+    const { queue, statusMap } = initSessionQueue(cards)
+
+    // Initially 10 memorized today, 1 toReview
+    let stats = computeSessionStats(statusMap, 10)
+    expect(stats.memorized).toBe(10)
+    expect(stats.toReview).toBe(1)
+
+    // Review card 1 as Got it
+    const res = applyReviewToQueue(queue, 0, true, statusMap)
+    stats = computeSessionStats(res.nextStatusMap, 10)
+    expect(stats.memorized).toBe(11)
+    expect(stats.toReview).toBe(0)
+    expect(stats.forgotten).toBe(0)
+  })
+
+  it('TC-14: Reviewing a secondReview card as Got it decrements forgotten and increments memorized', () => {
+    const mixedCards = [
+      { id: 1, front: 'C1', back: 'B1', isSecondReview: 0 },
+      { id: 2, front: 'C2', back: 'B2', isSecondReview: 1 }
+    ]
+    const { queue, statusMap } = initSessionQueue(mixedCards)
+
+    // Start with 3 memorized, 1 forgotten, 1 toReview
+    let stats = computeSessionStats(statusMap, 3)
+    expect(stats.memorized).toBe(3)
+    expect(stats.forgotten).toBe(1)
+    expect(stats.toReview).toBe(1)
+
+    // Card 1 is at index 0 (toReview), Card 2 is at index 1 (secondReview)
+    // Review Card 2 directly
+    const res = applyReviewToQueue(queue, 1, true, statusMap)
+    stats = computeSessionStats(res.nextStatusMap, 3)
+    expect(stats.memorized).toBe(4) // memorized incremented
+    expect(stats.forgotten).toBe(0) // secondReview cleared
+    expect(stats.toReview).toBe(1)  // Card 1 still toReview
+  })
+
+  it('TC-15: Reviewing a secondReview card as Forget preserves secondReview and re-inserts card', () => {
+    const card = [{ id: 5, front: 'C5', back: 'B5', isSecondReview: 1 }]
+    const { queue, statusMap } = initSessionQueue(card)
+
+    expect(statusMap.get(5)).toBe('secondReview')
+    const stats0 = computeSessionStats(statusMap, 0)
+    expect(stats0.forgotten).toBe(1)
+
+    // Fail it again
+    const res = applyReviewToQueue(queue, 0, false, statusMap)
+    expect(res.nextQueue).toHaveLength(2)
+    expect(res.nextStatusMap.get(5)).toBe('secondReview')
+    const stats1 = computeSessionStats(res.nextStatusMap, 0)
+    expect(stats1.forgotten).toBe(1)
+    expect(stats1.memorized).toBe(0)
+
+    // Undo should cleanly revert back
+    const undoRes = applyUndoToQueue(res.nextQueue, res.nextIndex, res.action, res.nextStatusMap)
+    expect(undoRes.nextQueue).toHaveLength(1)
+    expect(undoRes.nextStatusMap.get(5)).toBe('secondReview')
+  })
+
+  it('TC-16: Full multi-card session with second reviews finishes with accurate caught-up stats', () => {
+    const cards = [
+      { id: 10, front: 'C10', back: 'B10' },
+      { id: 20, front: 'C20', back: 'B20' }
+    ]
+    let { queue, statusMap } = initSessionQueue(cards)
+    let curIdx = 0
+
+    // Card 10 -> Forget (inserted at future position)
+    let step1 = applyReviewToQueue(queue, curIdx, false, statusMap)
+    queue = step1.nextQueue
+    curIdx = step1.nextIndex
+    statusMap = step1.nextStatusMap
+    expect(computeSessionStats(statusMap)).toEqual({ memorized: 0, forgotten: 1, toReview: 1 })
+
+    // Card 20 -> Got it
+    let step2 = applyReviewToQueue(queue, curIdx, true, statusMap)
+    queue = step2.nextQueue
+    curIdx = step2.nextIndex
+    statusMap = step2.nextStatusMap
+    expect(computeSessionStats(statusMap)).toEqual({ memorized: 1, forgotten: 1, toReview: 0 })
+
+    // Card 10 (second review) -> Got it
+    let step3 = applyReviewToQueue(queue, curIdx, true, statusMap)
+    queue = step3.nextQueue
+    curIdx = step3.nextIndex
+    statusMap = step3.nextStatusMap
+    expect(computeSessionStats(statusMap)).toEqual({ memorized: 2, forgotten: 0, toReview: 0 })
+    expect(curIdx >= queue.length).toBe(true) // Session all caught up!
+  })
 })

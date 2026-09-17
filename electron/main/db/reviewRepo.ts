@@ -19,14 +19,25 @@ export const reviewRepo = {
     const nowIso = now.toISOString()
     const orderClause = randomize ? 'RANDOM()' : 'c.nextReviewDate ASC, c.id ASC'
     const stmt = db.prepare(`
-      SELECT c.* FROM cards c 
-      WHERE (c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?))
-      AND c.id NOT IN (
-        SELECT cardId FROM review_logs WHERE datetime(reviewDate) >= datetime(?)
+      SELECT c.*,
+        CASE WHEN latest_log.isCorrect = 0 THEN 1 ELSE 0 END as isSecondReview
+      FROM cards c
+      LEFT JOIN (
+        SELECT cardId, isCorrect
+        FROM (
+          SELECT cardId, isCorrect, ROW_NUMBER() OVER (PARTITION BY cardId ORDER BY id DESC) as rn
+          FROM review_logs
+          WHERE datetime(reviewDate) >= datetime(?)
+        )
+        WHERE rn = 1
+      ) latest_log ON c.id = latest_log.cardId
+      WHERE (
+        ((c.nextReviewDate IS NULL OR datetime(c.nextReviewDate) <= datetime(?)) AND latest_log.cardId IS NULL)
+        OR latest_log.isCorrect = 0
       )
       ORDER BY ${orderClause}
     `)
-    return stmt.all(nowIso, logicalDayStartStr)
+    return stmt.all(logicalDayStartStr, nowIso)
   },
 
   getRandomCards: (limit: number = 8) => {
@@ -155,28 +166,28 @@ export const reviewRepo = {
     // Cards reviewed today where the latest review log today was correct
     const memorizedStmt = db.prepare(`
       SELECT COUNT(*) as count
-      FROM review_logs r
-      JOIN cards c ON r.cardId = c.id
-      WHERE datetime(r.reviewDate) >= datetime(?)
-      AND r.isCorrect = 1
-      AND r.id = (
-        SELECT MAX(r2.id) FROM review_logs r2 WHERE r2.cardId = r.cardId AND datetime(r2.reviewDate) >= datetime(?)
-      )
+      FROM (
+        SELECT cardId, isCorrect, ROW_NUMBER() OVER (PARTITION BY cardId ORDER BY id DESC) as rn
+        FROM review_logs
+        WHERE datetime(reviewDate) >= datetime(?)
+      ) latest
+      JOIN cards c ON latest.cardId = c.id
+      WHERE latest.rn = 1 AND latest.isCorrect = 1
     `)
-    const memorized = (memorizedStmt.get(logicalDayStartStr, logicalDayStartStr) as any).count
+    const memorized = (memorizedStmt.get(logicalDayStartStr) as any).count
     
     // Cards reviewed today where the latest review log today was incorrect (awaiting second review)
     const forgottenStmt = db.prepare(`
       SELECT COUNT(*) as count
-      FROM review_logs r
-      JOIN cards c ON r.cardId = c.id
-      WHERE datetime(r.reviewDate) >= datetime(?)
-      AND r.isCorrect = 0
-      AND r.id = (
-        SELECT MAX(r2.id) FROM review_logs r2 WHERE r2.cardId = r.cardId AND datetime(r2.reviewDate) >= datetime(?)
-      )
+      FROM (
+        SELECT cardId, isCorrect, ROW_NUMBER() OVER (PARTITION BY cardId ORDER BY id DESC) as rn
+        FROM review_logs
+        WHERE datetime(reviewDate) >= datetime(?)
+      ) latest
+      JOIN cards c ON latest.cardId = c.id
+      WHERE latest.rn = 1 AND latest.isCorrect = 0
     `)
-    const forgotten = (forgottenStmt.get(logicalDayStartStr, logicalDayStartStr) as any).count
+    const forgotten = (forgottenStmt.get(logicalDayStartStr) as any).count
     
     return { memorized, forgotten, toReview }
   },
@@ -207,12 +218,16 @@ export const reviewRepo = {
     const logicalDayStartStr = logicalDayStart.toISOString()
     const nowIso = now.toISOString()
     
-    // Cards Reviewed Today (distinct cards reviewed in logical day that still exist)
+    // Cards Reviewed (Memorized) Today (distinct cards reviewed in logical day whose latest status is correct)
     const reviewedCountStmt = db.prepare(`
-      SELECT COUNT(DISTINCT r.cardId) as count 
-      FROM review_logs r 
-      JOIN cards c ON r.cardId = c.id 
-      WHERE datetime(r.reviewDate) >= datetime(?)
+      SELECT COUNT(*) as count
+      FROM (
+        SELECT cardId, isCorrect, ROW_NUMBER() OVER (PARTITION BY cardId ORDER BY id DESC) as rn
+        FROM review_logs
+        WHERE datetime(reviewDate) >= datetime(?)
+      ) latest
+      JOIN cards c ON latest.cardId = c.id
+      WHERE latest.rn = 1 AND latest.isCorrect = 1
     `)
     const reviewedCount = (reviewedCountStmt.get(logicalDayStartStr) as any).count
     
@@ -236,11 +251,25 @@ export const reviewRepo = {
       )
     `)
     const toReviewCount = (toReviewStmt.get(nowIso, logicalDayStartStr) as any).count
+
+    // Second review cards (reviewed today where latest log was incorrect)
+    const secondReviewStmt = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM (
+        SELECT cardId, isCorrect, ROW_NUMBER() OVER (PARTITION BY cardId ORDER BY id DESC) as rn
+        FROM review_logs
+        WHERE datetime(reviewDate) >= datetime(?)
+      ) latest
+      JOIN cards c ON latest.cardId = c.id
+      WHERE latest.rn = 1 AND latest.isCorrect = 0
+    `)
+    const secondReviewCount = (secondReviewStmt.get(logicalDayStartStr) as any).count
     
     return {
       cardsReviewed: reviewedCount,
       retentionRate: Math.round(retentionRate),
-      cardsToReview: toReviewCount
+      cardsToReview: toReviewCount + secondReviewCount,
+      secondReview: secondReviewCount
     }
   },
 
@@ -250,12 +279,16 @@ export const reviewRepo = {
     const logicalDayStartStr = logicalDayStart.toISOString()
     const nowIso = now.toISOString()
     
-    // Cards Reviewed Today of this type
+    // Cards Reviewed (Memorized) Today of this type
     const reviewedCountStmt = db.prepare(`
-      SELECT COUNT(DISTINCT r.cardId) as count 
-      FROM review_logs r 
-      JOIN cards c ON r.cardId = c.id 
-      WHERE datetime(r.reviewDate) >= datetime(?) AND c.type = ?
+      SELECT COUNT(*) as count
+      FROM (
+        SELECT cardId, isCorrect, ROW_NUMBER() OVER (PARTITION BY cardId ORDER BY id DESC) as rn
+        FROM review_logs
+        WHERE datetime(reviewDate) >= datetime(?)
+      ) latest
+      JOIN cards c ON latest.cardId = c.id
+      WHERE latest.rn = 1 AND latest.isCorrect = 1 AND c.type = ?
     `)
     const reviewedCount = (reviewedCountStmt.get(logicalDayStartStr, type) as any).count
     
@@ -270,10 +303,24 @@ export const reviewRepo = {
       )
     `)
     const toReviewCount = (toReviewStmt.get(type, nowIso, logicalDayStartStr) as any).count
+
+    // Cards in Second Review of this type
+    const secondReviewStmt = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM (
+        SELECT cardId, isCorrect, ROW_NUMBER() OVER (PARTITION BY cardId ORDER BY id DESC) as rn
+        FROM review_logs
+        WHERE datetime(reviewDate) >= datetime(?)
+      ) latest
+      JOIN cards c ON latest.cardId = c.id
+      WHERE latest.rn = 1 AND latest.isCorrect = 0 AND c.type = ?
+    `)
+    const secondReviewCount = (secondReviewStmt.get(logicalDayStartStr, type) as any).count
     
     return {
       cardsReviewed: reviewedCount,
-      cardsToReview: toReviewCount
+      cardsToReview: toReviewCount,
+      secondReview: secondReviewCount
     }
   }
 }

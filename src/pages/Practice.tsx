@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { NewCardModal } from '../components/NewCardModal'
 import { useShortcuts } from '../hooks/useShortcuts'
+import { segmentTextWithCards } from '../utils/expressionMatcher'
 
 export const Practice: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'pure_listener' | 'rewrite' | 'ai_version'>('pure_listener')
@@ -195,45 +196,20 @@ const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) =
     if (!resultText) return null
     if (highlightedCards.length === 0) return resultText
 
-    // Collect match targets from cards (handling multiline terms and wildcard normalization)
-    type MatchTarget = { term: string; card: any }
-    const targets: MatchTarget[] = []
-
-    for (const card of highlightedCards) {
-      if (!card || typeof card.front !== 'string') continue
-      const lines = card.front.split(/\r?\n/)
-      for (const line of lines) {
-        const raw = line.trim()
-        const clean = raw.replace(/\*/g, ' ').replace(/\s+/g, ' ').trim()
-        if (clean.length > 0) {
-          targets.push({ term: clean, card })
-        }
-      }
-    }
-
-    // Sort by length desc to match longest phrases first
-    targets.sort((a, b) => b.term.length - a.term.length)
-    if (targets.length === 0) return resultText
-
-    const escapedTerms = Array.from(new Set(targets.map(t => t.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))))
-    const regex = new RegExp(`((?<![a-zA-Z0-9])(?:${escapedTerms.join('|')})(?![a-zA-Z0-9]))`, 'gi')
-    const parts = resultText.split(regex)
-
-    return parts.map((part, i) => {
-      const partNormalized = part.trim().toLowerCase()
-      const matched = targets.find(t => t.term.toLowerCase() === partNormalized)
-      if (matched) {
+    const segments = segmentTextWithCards(resultText, highlightedCards)
+    return segments.map((seg, i) => {
+      if (seg.card) {
         return (
           <button
             key={i}
-            onClick={(e) => handleWordClick(matched.card, e)}
+            onClick={(e) => handleWordClick(seg.card, e)}
             className="px-1 py-0.5 mx-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded font-medium hover:bg-yellow-200 dark:hover:bg-yellow-800/50 transition-colors cursor-pointer"
           >
-            {part}
+            {seg.text}
           </button>
         )
       }
-      return <span key={i}>{part}</span>
+      return <span key={i}>{seg.text}</span>
     })
   }
 
