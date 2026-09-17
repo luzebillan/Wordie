@@ -49,7 +49,8 @@ You must retain the exact target phrase in your rewritten context.
 1. SEMANTIC HINTS: The context must clearly hint at the meaning of the target phrase, making it the only logical answer.
 2. RETAIN TARGET: Keep the exact target phrase and its immediate collocations intact.
 3. CLOZE DELETION: You MUST replace the specific words in your rewritten context that correspond to the following core words: [{{wordsToBlank}}] with "________" (8 underscores). You must also replace any inflected forms of these words (e.g., if the core word is "play", replace "playing" or "played"). Do not replace pronouns, articles or filler words like "one's", "sb", "sth" unless they are in the brackets.
-4. STRICT OUTPUT: Output ONLY the rewritten English paragraph with the blanks. Do not include conversational filler, intros, or markdown blocks.`
+4. STRICT OUTPUT: Output ONLY the rewritten English paragraph with the blanks. Do not include conversational filler, intros, or markdown blocks.
+5. NO TRANSFORMATION ARROWS: Do NOT output token-by-token transformation mappings, word lists, or arrows (e.g. NEVER output "word" -> "______"). Return ONLY the complete, natural rewritten paragraph/sentence with the target blanks embedded in context.`
 
 export const DEFAULT_PROMPT_PURE_LISTENER = `You are a "Pure Listener". I am an interpreting student. I will provide you with a text that I produced.
 <task>
@@ -67,27 +68,65 @@ Summarize the main idea and point out any logical gaps or contradictions.
 
 export const DEFAULT_PROMPT_PRACTICE_EXTRACT = `I have written a text.
 <task>
-Identify up to {{targetCount}} expressions or chunks of words in my text that could be improved or made more advanced.
-If the text is already exceptionally well-written, idiomatic, and requires no changes, output ONLY "NONE".
-Otherwise, output ONLY the exact words/phrases from my text, separated by a pipe character (|). Do not include any other text or formatting.
+Identify up to {{targetCount}} semantic segments (phrases or clauses) in my text that could be expressed more idiomatically or professionally using advanced expressions.
+For each segment, identify:
+1. "original": The exact phrase or segment from my text.
+2. "intent": The precise intended semantic meaning or definition of this segment in English.
+3. "context": The entire sentence from my text where this segment appears.
+
+If the text is already exceptionally well-written, idiomatic, and requires no changes, output an empty JSON array: []
+Otherwise, output a raw JSON array of objects with NO markdown formatting, conversational filler, or commentary.
+Example:
+[
+  {
+    "original": "happened to",
+    "intent": "became of or occurred to",
+    "context": "I wondered what happened to our old friends."
+  }
+]
 </task>
 <input_text>
 {{text}}
 </input_text>`
 
-export const DEFAULT_PROMPT_PRACTICE_REWRITE = `You are an expert English teacher. I am an interpreting student.
+export const DEFAULT_PROMPT_PRACTICE_VERIFY = `You are an expert lexicographer.
+Evaluate whether any candidate expression from the database is a genuine, authentic, and natural contextual substitute for each target segment.
+
+<target_segments>
+{{segmentsStr}}
+</target_segments>
+
+CRITERIA:
+1. Meaning Fidelity: The candidate must convey the exact same core action, state, or concept as the target segment's intended meaning.
+2. Contextual Fluency: The candidate must fit naturally and grammatically into the given sentence context when substituted.
+3. High Confidence Threshold: Select a candidate ONLY if you are confident (confidence >= 0.75) it is a natural, superior substitute. If candidates are only vaguely related, unnatural, or alter the meaning, choose null. NEVER force an improper match.
+
+OUTPUT:
+Return a raw JSON object mapping each segment index ("0", "1", ...) to the chosen candidate Card ID (as number or string), or null if no candidate qualifies.
+Example: {"0": 142, "1": null}`
+
+export const DEFAULT_PROMPT_PRACTICE_REWRITE = `You are an expert English editor and simultaneous interpreter.
 <task>
-Rewrite my input text to make it more professional, idiomatic, and eloquent. 
-You MUST heavily integrate the provided "Target Vocabulary" into your rewritten text.
+Rewrite the input text to make it more natural, idiomatic, and professional by integrating authentic expressions from the provided vocabulary bank.
 </task>
-<target_vocabulary>
-{{cardsContext}}
-</target_vocabulary>
+
+<vocabulary_bank>
+{{vocabulary_bank}}
+</vocabulary_bank>
+
 <rules>
-1. PRESERVE MEANING: Do not change the original facts or core message.
-2. FORCE INTEGRATION: You MUST use as many of the Target Vocabulary words as possible where appropriate.
-3. OUTPUT: Output ONLY the rewritten text. Do not include any conversational filler, markdown, or intros.
+1. CONSTRAINED SUBSTITUTION: You may ONLY substitute original segments with expressions from the <vocabulary_bank> where they genuinely, naturally, and authentically fit the speaker's intent and sentence context.
+2. DO NOT FORCE SUBSTITUTIONS: If an expression does not fit naturally, do NOT use it. If NO expressions fit authentically, keep the original text structure and meaning intact with minimal or no changes.
+3. PRESERVE PERSPECTIVE & MEANING: Keep the author's original perspective, voice, and core meaning completely intact. Adapt grammatical inflections (tense, agreement, prepositions) only as strictly needed for natural English syntax.
+4. RESPONSE FORMAT: You MUST return a single valid raw JSON object with NO surrounding markdown formatting or commentary.
+JSON schema:
+{
+  "rewritten_text": "The final rewritten text with integrated expressions",
+  "used_card_ids": [101, 105]
+}
+If no expressions from the vocabulary bank qualify or fit, return the original text in "rewritten_text" and an empty array [] in "used_card_ids".
 </rules>
+
 <input_text>
 {{text}}
 </input_text>`
@@ -111,6 +150,7 @@ Reinterpret the following transcript into a flawless, concise, native, and highl
 
 export const DEFAULT_PROMPT_SYNONYMS = `You are an expert lexicographer. Your task is to identify valid synonyms for a Target Word from a provided list of Candidates.
 Target Word: "{{targetFront}}"
+Definition: "{{targetBack}}"
 Given Context: "{{context}}"
 Candidates:
 {{candidatesStr}}

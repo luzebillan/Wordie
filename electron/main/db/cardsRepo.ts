@@ -90,6 +90,9 @@ export const cardsRepo = {
   },
 
   deleteCard: async (id: number) => {
+    try {
+      db.prepare('DELETE FROM review_logs WHERE cardId = ?').run(id)
+    } catch {}
     const stmt = db.prepare('DELETE FROM cards WHERE id = ?')
     stmt.run(id)
     await deleteCardVector(id)
@@ -100,9 +103,11 @@ export const cardsRepo = {
     if (!ids || ids.length === 0) return { success: true }
     
     try {
+      const deleteLogStmt = db.prepare('DELETE FROM review_logs WHERE cardId = ?')
       const deleteStmt = db.prepare('DELETE FROM cards WHERE id = ?')
       db.transaction(() => {
         for (const id of ids) {
+          try { deleteLogStmt.run(id) } catch {}
           deleteStmt.run(id)
         }
       })()

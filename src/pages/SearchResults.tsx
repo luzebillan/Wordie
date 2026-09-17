@@ -121,6 +121,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
           cardsToDelete.forEach(id => next.delete(id))
           return next
         })
+        cardsToDelete.forEach(id => {
+          window.dispatchEvent(new CustomEvent('card-deleted', { detail: id }))
+        })
         window.dispatchEvent(new Event('stats-updated'))
       }
     } catch (error) {

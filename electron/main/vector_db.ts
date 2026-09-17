@@ -4,7 +4,8 @@ import { app } from 'electron';
 import { getEmbedding } from './semantic';
 
 // Connect to the local LanceDB in the user data directory
-const dbDir = path.join(app.getPath('userData'), 'lancedb');
+const userDataDir = (app && typeof app.getPath === 'function') ? app.getPath('userData') : path.join(process.cwd(), '.test_lancedb');
+const dbDir = path.join(userDataDir, 'lancedb');
 let dbPromise: Promise<lancedb.Connection> | null = null;
 let tablePromise: Promise<lancedb.Table> | null = null;
 
@@ -29,7 +30,8 @@ export async function getVectorTable(): Promise<lancedb.Table | null> {
 
 export async function addCardVector(id: number, front: string, back: string, type: string) {
   try {
-    const embedding = await getEmbedding(front + ": " + back);
+    const textToEmbed = back && back.trim() ? `${front}: ${back}` : front;
+    const embedding = await getEmbedding(textToEmbed);
     if (!embedding || embedding.length === 0) return;
 
     const db = await getDb();
@@ -102,7 +104,7 @@ export async function clearVectorTable() {
   }
 }
 
-export async function searchCardVectors(queryText: string, type?: string, limit: number = 15) {
+export async function searchCardVectors(queryText: string, type?: string, limit: number = 25) {
   try {
     const table = await getVectorTable();
     if (!table) return [];
@@ -113,7 +115,8 @@ export async function searchCardVectors(queryText: string, type?: string, limit:
     let query = table.search(queryVector).limit(limit);
     
     if (type) {
-      query = query.where(`type = '${type}'`);
+      const escapedType = type.replace(/'/g, "''");
+      query = query.where(`type = '${escapedType}'`);
     }
 
     const results = await query.toArray();
