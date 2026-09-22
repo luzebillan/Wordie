@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Eraser } from 'lucide-react'
 import { NewCardModal } from '../components/NewCardModal'
 import { useShortcuts } from '../hooks/useShortcuts'
-import { segmentTextWithCards } from '../utils/expressionMatcher'
+import { segmentTextWithCards, type TextSegment } from '../utils/expressionMatcher'
 
 export const Practice: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'pure_listener' | 'rewrite' | 'ai_version'>('pure_listener')
@@ -97,9 +98,27 @@ export const Practice: React.FC = () => {
 // -----------------------------------------------------------------------------
 
 const PureListener: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
   const [inputText, setInputText] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [feedback, setFeedback] = useState('')
+
+  const handleClear = useCallback(() => {
+    if (isGenerating) return
+    setInputText('')
+    setFeedback('')
+  }, [isGenerating])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isActionPressed('practice.clear', e) || isActionPressed('card.clear', e)) {
+        e.preventDefault()
+        handleClear()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleClear, isActionPressed])
 
   const handleAnalyze = async () => {
     if (!inputText.trim()) return
@@ -139,6 +158,17 @@ const PureListener: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
             Pure Listener
           </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={isGenerating || (!inputText && !feedback)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            title={`Clear (${getShortcutDisplay('practice.clear')})`}
+            aria-label={`Clear (${getShortcutDisplay('practice.clear')})`}
+          >
+            <Eraser className="w-4 h-4" />
+            Clear
+          </button>
         </div>
       </div>
       
@@ -159,22 +189,45 @@ const PureListener: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
 }
 
 const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const { isActionPressed, getShortcutDisplay } = useShortcuts()
   const [inputText, setInputText] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [resultText, setResultText] = useState('')
   const [highlightedCards, setHighlightedCards] = useState<any[]>([])
+  const [resultSegments, setResultSegments] = useState<TextSegment[] | null>(null)
+
+  const handleClear = useCallback(() => {
+    if (isGenerating) return
+    setInputText('')
+    setResultText('')
+    setHighlightedCards([])
+    setResultSegments(null)
+  }, [isGenerating])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isActionPressed('practice.clear', e) || isActionPressed('card.clear', e)) {
+        e.preventDefault()
+        handleClear()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleClear, isActionPressed])
 
   const handleRewrite = async () => {
     if (!inputText.trim()) return
     setIsGenerating(true)
     setResultText('')
     setHighlightedCards([])
+    setResultSegments(null)
     
     try {
       const res = await window.ipcRenderer.invoke('practice-rewrite', inputText)
       if (res.success) {
         setResultText(res.result.text)
-        setHighlightedCards(res.result.cards)
+        setHighlightedCards(res.result.cards || [])
+        setResultSegments(res.result.segments || null)
         onComplete()
       } else {
         setResultText('Error: ' + res.error)
@@ -194,6 +247,25 @@ const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) =
   // Render highlighted text
   const renderHighlighted = () => {
     if (!resultText) return null
+
+    // Prefer explicit pre-segmented spans from Ground Truth Tagging
+    if (resultSegments && resultSegments.length > 0) {
+      return resultSegments.map((seg, i) => {
+        if (seg.card) {
+          return (
+            <button
+              key={i}
+              onClick={(e) => handleWordClick(seg.card, e)}
+              className="px-1 py-0.5 mx-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded font-medium hover:bg-yellow-200 dark:hover:bg-yellow-800/50 transition-colors cursor-pointer"
+            >
+              {seg.text}
+            </button>
+          )
+        }
+        return <span key={i}>{seg.text}</span>
+      })
+    }
+
     if (highlightedCards.length === 0) return resultText
 
     const segments = segmentTextWithCards(resultText, highlightedCards)
@@ -232,6 +304,17 @@ const RewritePractice: React.FC<{ onComplete: () => void }> = ({ onComplete }) =
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
             Rewrite
           </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={isGenerating || (!inputText && !resultText && highlightedCards.length === 0)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            title={`Clear (${getShortcutDisplay('practice.clear')})`}
+            aria-label={`Clear (${getShortcutDisplay('practice.clear')})`}
+          >
+            <Eraser className="w-4 h-4" />
+            Clear
+          </button>
         </div>
       </div>
       
@@ -261,16 +344,25 @@ const AiVersion: React.FC<{ onComplete: () => void, onOpenNewCard: () => void }>
   const [isGenerating, setIsGenerating] = useState(false)
   const [resultText, setResultText] = useState('')
 
+  const handleClear = useCallback(() => {
+    if (isGenerating) return
+    setInputText('')
+    setResultText('')
+  }, [isGenerating])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isActionPressed('card.new', e)) {
         e.preventDefault()
         onOpenNewCard()
+      } else if (isActionPressed('practice.clear', e) || isActionPressed('card.clear', e)) {
+        e.preventDefault()
+        handleClear()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onOpenNewCard, isActionPressed])
+  }, [onOpenNewCard, isActionPressed, handleClear])
 
   const handleGenerate = async () => {
     if (!inputText.trim()) return
@@ -309,6 +401,17 @@ const AiVersion: React.FC<{ onComplete: () => void, onOpenNewCard: () => void }>
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
             AI Version
+          </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={isGenerating || (!inputText && !resultText)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            title={`Clear (${getShortcutDisplay('practice.clear')})`}
+            aria-label={`Clear (${getShortcutDisplay('practice.clear')})`}
+          >
+            <Eraser className="w-4 h-4" />
+            Clear
           </button>
         </div>
       </div>

@@ -1,6 +1,6 @@
 export interface ShortcutDefinition {
   id: string
-  category: 'revision' | 'card' | 'navigation'
+  category: 'revision' | 'card' | 'navigation' | 'practice'
   name: string
   description: string
   defaultKey: string
@@ -9,6 +9,7 @@ export interface ShortcutDefinition {
 export const SHORTCUT_CATEGORIES = [
   { id: 'revision', name: 'Revision' },
   { id: 'card', name: 'Card Creation & Edit' },
+  { id: 'practice', name: 'Practice' },
   { id: 'navigation', name: 'Navigation & Global' },
 ] as const
 
@@ -50,6 +51,13 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     defaultKey: 'Ctrl+Z'
   },
   {
+    id: 'revision.shuffle',
+    category: 'revision',
+    name: 'Shuffle Remaining Cards',
+    description: 'Shuffle remaining review cards in the current session',
+    defaultKey: 'Ctrl+Tab'
+  },
+  {
     id: 'revision.cancel',
     category: 'revision',
     name: 'Cancel Edit',
@@ -70,7 +78,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     category: 'card',
     name: 'Clear Form Inputs',
     description: 'Clear all input fields in the current card form',
-    defaultKey: 'Alt+Delete'
+    defaultKey: 'Ctrl+Q'
+  },
+  {
+    id: 'practice.clear',
+    category: 'practice',
+    name: 'Clear Practice Inputs & Results',
+    description: 'Clear original input and AI-generated results in Practice tabs',
+    defaultKey: 'Ctrl+Q'
   },
   {
     id: 'card.new',
@@ -146,16 +161,27 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = SHORTCUT_DEFINITIONS.re
  */
 export function normalizeKey(key: string): string {
   const trimmed = key.trim()
-  if (trimmed === ' ' || trimmed.toLowerCase() === 'space') return 'Space'
-  if (trimmed.toLowerCase() === 'escape' || trimmed.toLowerCase() === 'esc') return 'Escape'
-  if (trimmed.toLowerCase() === 'enter' || trimmed.toLowerCase() === 'return') return 'Enter'
-  if (trimmed.toLowerCase() === 'tab') return 'Tab'
-  if (trimmed.toLowerCase() === 'backspace') return 'Backspace'
-  if (trimmed.toLowerCase() === 'delete' || trimmed.toLowerCase() === 'del') return 'Delete'
-  if (trimmed.toLowerCase() === 'arrowup' || trimmed.toLowerCase() === 'up') return 'ArrowUp'
-  if (trimmed.toLowerCase() === 'arrowdown' || trimmed.toLowerCase() === 'down') return 'ArrowDown'
-  if (trimmed.toLowerCase() === 'arrowleft' || trimmed.toLowerCase() === 'left') return 'ArrowLeft'
-  if (trimmed.toLowerCase() === 'arrowright' || trimmed.toLowerCase() === 'right') return 'ArrowRight'
+  if (trimmed.includes('+')) {
+    return trimmed
+      .split('+')
+      .map(part => normalizeKey(part))
+      .join('+')
+  }
+
+  const lower = trimmed.toLowerCase()
+  if (lower === 'ctrl' || lower === 'control' || lower === 'cmd' || lower === 'meta') return 'Ctrl'
+  if (lower === 'alt' || lower === 'option') return 'Alt'
+  if (lower === 'shift') return 'Shift'
+  if (trimmed === ' ' || lower === 'space') return 'Space'
+  if (lower === 'escape' || lower === 'esc') return 'Escape'
+  if (lower === 'enter' || lower === 'return') return 'Enter'
+  if (lower === 'tab') return 'Tab'
+  if (lower === 'backspace') return 'Backspace'
+  if (lower === 'delete' || lower === 'del') return 'Delete'
+  if (lower === 'arrowup' || lower === 'up') return 'ArrowUp'
+  if (lower === 'arrowdown' || lower === 'down') return 'ArrowDown'
+  if (lower === 'arrowleft' || lower === 'left') return 'ArrowLeft'
+  if (lower === 'arrowright' || lower === 'right') return 'ArrowRight'
   
   if (trimmed.length === 1) {
     return trimmed.toUpperCase()
@@ -180,6 +206,12 @@ export function parseKeyboardEvent(e: KeyboardEvent): string | null {
   let mainKey = e.key
   if (e.code === 'Space' || mainKey === ' ') {
     mainKey = 'Space'
+  } else if (e.code === 'Tab' || mainKey.toLowerCase() === 'tab') {
+    mainKey = 'Tab'
+  } else if (e.code === 'Enter' || e.code === 'NumpadEnter' || mainKey.toLowerCase() === 'enter') {
+    mainKey = 'Enter'
+  } else if (e.code === 'Escape' || mainKey.toLowerCase() === 'escape' || mainKey.toLowerCase() === 'esc') {
+    mainKey = 'Escape'
   } else if (e.code.startsWith('Key') && e.code.length === 4) {
     mainKey = e.code.slice(3) // 'KeyF' -> 'F'
   } else if (e.code.startsWith('Digit') && e.code.length === 6) {
@@ -199,10 +231,11 @@ export function matchesShortcut(e: KeyboardEvent, shortcutCombo: string | undefi
   if (!shortcutCombo) return false
 
   const parts = shortcutCombo.split('+').map(p => p.trim())
-  const hasCtrl = parts.includes('Ctrl')
-  const hasAlt = parts.includes('Alt')
-  const hasShift = parts.includes('Shift')
-  const mainKeyPart = parts.find(p => !['Ctrl', 'Alt', 'Shift', 'Meta'].includes(p))
+  const lowerParts = parts.map(p => p.toLowerCase())
+  const hasCtrl = lowerParts.includes('ctrl') || lowerParts.includes('control') || lowerParts.includes('cmd') || lowerParts.includes('meta')
+  const hasAlt = lowerParts.includes('alt') || lowerParts.includes('option')
+  const hasShift = lowerParts.includes('shift')
+  const mainKeyPart = parts.find(p => !['ctrl', 'control', 'cmd', 'meta', 'alt', 'option', 'shift'].includes(p.toLowerCase()))
 
   if (!mainKeyPart) return false
 
@@ -224,6 +257,9 @@ export function matchesShortcut(e: KeyboardEvent, shortcutCombo: string | undefi
   if (normMain === 'enter') {
     return e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter'
   }
+  if (normMain === 'tab') {
+    return e.key.toLowerCase() === 'tab' || e.code === 'Tab'
+  }
 
   // Single character / letter / number
   if (e.key.toLowerCase() === normMain) return true
@@ -244,12 +280,17 @@ export function formatShortcutDisplay(combo: string): string {
     .split('+')
     .map(part => {
       const p = part.trim()
-      if (isMac) {
-        if (p === 'Ctrl') return '⌘'
-        if (p === 'Alt') return '⌥'
-        if (p === 'Shift') return '⇧'
+      const lower = p.toLowerCase()
+      if (lower === 'ctrl' || lower === 'control' || lower === 'cmd' || lower === 'meta') {
+        return isMac ? '⌘' : 'Ctrl'
       }
-      return p
+      if (lower === 'alt' || lower === 'option') {
+        return isMac ? '⌥' : 'Alt'
+      }
+      if (lower === 'shift') {
+        return isMac ? '⇧' : 'Shift'
+      }
+      return normalizeKey(p)
     })
     .join(isMac ? '' : ' + ')
 }

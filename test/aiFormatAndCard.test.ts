@@ -11,7 +11,9 @@ import {
   alignTermWithUserTerm,
   isFullyWrappedInQuotes,
   stripWrappingQuotes,
-  extractJsonArray
+  extractJsonArray,
+  getGlossaryField,
+  GLOSSARY_FIELD_ALIASES
 } from '../electron/main/ai'
 
 describe('parseGlossaryResponse & Glossary AI formatting (Image 1 fix)', () => {
@@ -158,6 +160,120 @@ describe('parseGlossaryResponse & Glossary AI formatting (Image 1 fix)', () => {
       front: '无党派\n无党派',
       back: '不偏向任何政党\n不偏向任何政党'
     })
+  })
+})
+
+describe('Issue #9 & #14: AI newline anomalies, broken keys & field recovery', () => {
+  it('successfully parses and repairs the exact Issue #14 case (Yabloko with space in key and broken year)', () => {
+    // Exact LLM output reproduction from Issue #14
+    const issue14RawOutput = `{
+  "term_cn": "亚博卢党（俄罗斯统一民主党）",
+  "def_ en": "A Russian social-liberal opposition political party founded in 1993 by Grigory Yavlinsky and others, advocating for democracy, human rights, the rule of law, and integration with the West.",
+  "def_cn": "俄罗斯主要的社会自由主义政党，由格里戈里·亚夫林斯基等人于199 3年创立，主张民主法治、人权保障以及亲西方外交路线，长期作为俄政坛的自由派反对党。",
+  "term_en": "Yabloko"
+}`
+
+    const parsed = parseGlossaryResponse(issue14RawOutput, 'Yabloko')
+    expect(parsed).not.toBeNull()
+
+    // 1. Term (front) must NOT swallow "def_ en" or raw JSON quotes
+    expect(parsed!.front).toBe('亚博卢党（俄罗斯统一民主党）\nYabloko')
+    expect(parsed!.front).not.toContain('def_ en')
+    expect(parsed!.front).not.toContain('"')
+
+    // 2. Explanation (back) must contain distinct Chinese and English definitions (NOT duplicated)
+    const [backCn, backEn] = parsed!.back.split('\n')
+    expect(backCn).toContain('俄罗斯主要的社会自由主义政党')
+    expect(backCn).toContain('1993年创立') // Fixed 199 3 -> 1993
+    expect(backCn).not.toContain('199 3')
+
+    expect(backEn).toContain('A Russian social-liberal opposition political party founded in 1993')
+    expect(backCn).not.toBe(backEn)
+  })
+
+  it('handles JSON response with hard-wrapped keys and newlines inside numbers (Issue #9/14 root cause)', () => {
+    const rawWithWrappedKeys = `{
+  "term_cn": "亚博卢党（俄罗斯统一民主党）",
+  "def_
+en": "A Russian social-liberal opposition political party founded in 199
+3 by Grigory Yavlinsky and others, advocating for democracy, human rights, the rule of law, and integration with the West.",
+  "def_cn": "俄罗斯主要的社会自由主义政党，由格里戈里·亚夫林斯基等人于199
+3年创立，主张民主法治、人权保障以及亲西方外交路线，长期作为俄政坛的自由派反对党。",
+  "term_en": "Yabloko"
+}`
+
+    const parsed = parseGlossaryResponse(rawWithWrappedKeys, 'Yabloko')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.front).toBe('亚博卢党（俄罗斯统一民主党）\nYabloko')
+    expect(parsed!.back).toContain('1993年创立')
+    expect(parsed!.back).toContain('founded in 1993')
+    expect(parsed!.back.split('\n').length).toBe(2)
+  })
+
+  it('cleanGlossaryLine repairs numbers and CJK broken across newlines without unwanted spaces', () => {
+    const rawChinese = '由格里戈里·亚夫林斯基等人于199\n3年创立，并于1993\n年获得承认，在第\n1\n届会议通过。'
+    const cleaned = cleanGlossaryLine(rawChinese, false)
+    expect(cleaned).toBe('由格里戈里·亚夫林斯基等人于1993年创立，并于1993年获得承认，在第1届会议通过。')
+
+    const rawEng = 'founded in 199\n3 by Grigory Yavlinsky'
+    expect(cleanGlossaryLine(rawEng, true)).toBe('founded in 1993 by Grigory Yavlinsky')
+  })
+
+  it('cleanGlossaryLine repairs existing spaced numbers in Chinese context', () => {
+    const spaced = '于199 3年创立，202 4年延续'
+    expect(cleanGlossaryLine(spaced, false)).toBe('于1993年创立，2024年延续')
+  })
+
+  it('getGlossaryField retrieves keys across varied aliases, spaces, and hyphens', () => {
+    const data1 = { 'def_ en': 'English definition', 'def_ cn': 'Chinese definition' }
+    expect(getGlossaryField(data1, GLOSSARY_FIELD_ALIASES.def_en)).toBe('English definition')
+    expect(getGlossaryField(data1, GLOSSARY_FIELD_ALIASES.def_cn)).toBe('Chinese definition')
+
+    const data2 = { 'def-en': 'English definition', 'chinese term': '中文' }
+    expect(getGlossaryField(data2, GLOSSARY_FIELD_ALIASES.def_en)).toBe('English definition')
+    expect(getGlossaryField(data2, GLOSSARY_FIELD_ALIASES.term_cn)).toBe('中文')
+  })
+
+  it('cleanAiExpression repairs numbers and hyphenated words across newlines', () => {
+    const raw = 'An official established in 199\n3 for adminis-\ntration and defense.'
+    expect(cleanAiExpression(raw)).toBe('An official established in 1993 for administration and defense.')
+  })
+
+  it('cleanGlossaryLine does NOT merge distinct numbers separated by space in Chinese context', () => {
+    const normal = '由3 4个人耗时1 2天完成，涉及2023 2024年度，时速80 120公里'
+    expect(cleanGlossaryLine(normal, false)).toBe('由3 4个人耗时1 2天完成，涉及2023 2024年度，时速80 120公里')
+  })
+
+  it('escapeUnescapedControlCharsInJson escapes unescaped interior quotes followed by comma and text with colon', () => {
+    const rawUnescaped = '{\n  "def_cn": "该党派全称"亚博卢", 其宗旨是: 自由与民主",\n  "term_en": "Yabloko"\n}'
+    const escaped = escapeUnescapedControlCharsInJson(rawUnescaped)
+    const parsed = JSON.parse(escaped)
+    expect(parsed.def_cn).toBe('该党派全称"亚博卢", 其宗旨是: 自由与民主')
+    expect(parsed.term_en).toBe('Yabloko')
+  })
+
+  it('parseGlossaryResponse pre-repairs broken keys with spaces, hyphens, and newlines before parsing', () => {
+    const raw = `{\n  "term_ cn": "亚博卢党",\n  "def - en": "A Russian party",\n  "def_\n  cn": "俄罗斯政党",\n  "term en": "Yabloko"\n}`
+    const parsed = parseGlossaryResponse(raw, 'Yabloko')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.front).toBe('亚博卢党\nYabloko')
+    expect(parsed!.back).toBe('俄罗斯政党\nA Russian party')
+  })
+
+  it('cleanGlossaryLine repairs split years with space before 年 and in English text', () => {
+    const chineseWithSpace = '由格里戈里·亚夫林斯基等人于199 3 年创立，于189 8 年建立'
+    expect(cleanGlossaryLine(chineseWithSpace, false)).toBe('由格里戈里·亚夫林斯基等人于1993年创立，于1898年建立')
+
+    const englishWithSpace = 'A party founded in 199 3 by Grigory and active in 202 4.'
+    expect(cleanGlossaryLine(englishWithSpace, true)).toBe('A party founded in 1993 by Grigory and active in 2024.')
+  })
+
+  it('parseGlossaryResponse handles explanation_en and meaning_cn aliases and unquoted keys', () => {
+    const raw = `{\n  "term_cn": "无党派人士",\n  "term_en": "Independent",\n  "meaning_cn": "不属于任何党派的公民。",\n  "explanation_en": "A politician or citizen not affiliated with any political party."\n}`
+    const parsed = parseGlossaryResponse(raw, 'Independent')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.front).toBe('无党派人士\nIndependent')
+    expect(parsed!.back).toBe('不属于任何党派的公民。\nA politician or citizen not affiliated with any political party.')
   })
 })
 

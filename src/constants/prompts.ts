@@ -3,15 +3,15 @@ The user wants to know the background knowledge for this term: "{{term}}" in the
 CRITICAL INSTRUCTIONS: 
 1. DO NOT use any external tools, web search, or browsing functions. Rely entirely on your own internal knowledge.
 2. You MUST escape all double quotes inside your definitions using a backslash.
-3. NO LITERAL NEWLINES inside string values. Keep each field as a single continuous line.
+3. NO LITERAL NEWLINES inside string values or keys. Do NOT hard-wrap or split words across lines. Keep each field as a single continuous line.
 4. Output ONLY the raw JSON response without markdown code blocks, explanation, or conversational text.
-5. Ensure perfect JSON syntax.
+5. Ensure perfect JSON syntax with exact keys: "term_en", "term_cn", "def_en", "def_cn".
 Provide a raw JSON response exactly in this format:
 {
 "term_en": "Standard English term",
 "term_cn": "Standard Chinese term",
-"def_en": "Concise 1-2 line explanation in English",
-"def_cn": "Concise 1-2 line explanation in Chinese"
+"def_en": "Concise 1-2 sentence explanation in English on a single line",
+"def_cn": "Concise 1-2 sentence explanation in Chinese on a single line"
 }`
 
 export const DEFAULT_PROMPT_DAILY_WORD = `You are an expert bilingual linguist and localization specialist. Your task is to analyze the input to find its best-fit, authentic, natural English counterpart(s).
@@ -121,13 +121,17 @@ Rewrite the input text to make it more natural, idiomatic, and professional by i
 1. CONSTRAINED SUBSTITUTION: You may ONLY substitute original segments with expressions from the <vocabulary_bank> where they genuinely, naturally, and authentically fit the speaker's intent and sentence context.
 2. DO NOT FORCE SUBSTITUTIONS: If an expression does not fit naturally, do NOT use it. If NO expressions fit authentically, keep the original text structure and meaning intact with minimal or no changes.
 3. PRESERVE PERSPECTIVE & MEANING: Keep the author's original perspective, voice, and core meaning completely intact. Adapt grammatical inflections (tense, agreement, prepositions) only as strictly needed for natural English syntax.
-4. RESPONSE FORMAT: You MUST return a single valid raw JSON object with NO surrounding markdown formatting or commentary.
+4. EXPLICIT INLINE TAGGING: Whenever you integrate an expression from the <vocabulary_bank>, wrap that integrated expression (in whatever grammatical form or inflection you used) with an inline tag: <mark id="CARD_ID">inflected expression</mark>, where CARD_ID matches the ID from the <vocabulary_bank>.
+Example: If integrating card with ID 101 ("double down on"), write:
+"The committee decided to <mark id="101">double down on</mark> their renewable energy commitment."
+Do not tag any words or expressions that were not derived from that vocabulary bank card.
+5. RESPONSE FORMAT: You MUST return a single valid raw JSON object with NO surrounding markdown formatting or commentary.
 JSON schema:
 {
-  "rewritten_text": "The final rewritten text with integrated expressions",
+  "rewritten_text": "The final rewritten text with integrated expressions wrapped in <mark id=\\"ID\\">...</mark>",
   "used_card_ids": [101, 105]
 }
-If no expressions from the vocabulary bank qualify or fit, return the original text in "rewritten_text" and an empty array [] in "used_card_ids".
+If no expressions from the vocabulary bank qualify or fit, return the original text in "rewritten_text" (without mark tags) and an empty array [] in "used_card_ids".
 </rules>
 
 <input_text>

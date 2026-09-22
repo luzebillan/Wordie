@@ -137,4 +137,31 @@ First, be tuned in to their personal boundaries without overstepping. Kids shoul
     expect(isCardInText(card, 'They are relying on the outcome.')).toBe(true)
     expect(isCardInText(card, 'She relies on her team.')).toBe(true)
   })
+
+  it('Issue #13: "double down on" does NOT match standalone "double" or unrelated sentences', () => {
+    const card = { id: 501, front: 'double down on' }
+    // Negative test: should NOT match standalone double
+    expect(isCardInText(card, 'He ordered a double espresso this morning.')).toBe(false)
+    expect(isCardInText(card, 'The company saw double-digit growth.')).toBe(false)
+    expect(isCardInText(card, 'Sales doubled in the fourth quarter.')).toBe(false)
+
+    // Positive test: DOES match inflected forms of the phrase
+    expect(isCardInText(card, 'The administration doubled down on its tariff policies.')).toBe(true)
+    expect(isCardInText(card, 'They are doubling down on clean energy investments.')).toBe(true)
+    expect(isCardInText(card, 'We should not double down on past mistakes.')).toBe(true)
+  })
+
+  it('Issue #13: matches cards with leading infinitive "to", irregular verbs, and separable particles', () => {
+    const cardTo = { id: 502, front: 'to double down on' }
+    expect(isCardInText(cardTo, 'They doubled down on their core strategy.')).toBe(true)
+
+    const cardLead = { id: 503, front: 'lead to sth.' }
+    expect(isCardInText(cardLead, 'The decision led to unexpected consequences.')).toBe(true)
+
+    const cardSeek = { id: 504, front: 'seek to do sth.' }
+    expect(isCardInText(cardSeek, 'The government sought to address the crisis.')).toBe(true)
+
+    const cardFigure = { id: 505, front: 'figure out' }
+    expect(isCardInText(cardFigure, 'We eventually figured it out.')).toBe(true)
+  })
 })

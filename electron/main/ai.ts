@@ -9,19 +9,27 @@ import {
   DEFAULT_PROMPT_EXPRESSION,
   DEFAULT_PROMPT_REVISION_CLOZE,
   DEFAULT_PROMPT_PURE_LISTENER,
-  DEFAULT_PROMPT_PRACTICE_EXTRACT,
-  DEFAULT_PROMPT_PRACTICE_VERIFY,
   DEFAULT_PROMPT_PRACTICE_REWRITE,
   DEFAULT_PROMPT_AI_VERSION,
   DEFAULT_PROMPT_SYNONYMS
 } from '../../src/constants/prompts'
-import { isCardInText } from '../../src/utils/expressionMatcher'
+import { isCardInText, parseMarkedText, segmentTextWithCards, type TextSegment } from '../../src/utils/expressionMatcher'
+export { parseMarkedText }
+
+interface ObjectFrame {
+  type: '{'
+  expect: 'key' | 'colon' | 'value' | 'comma_or_end'
+}
+interface ArrayFrame {
+  type: '['
+}
+type StackFrame = ObjectFrame | ArrayFrame
 
 export function escapeUnescapedControlCharsInJson(str: string): string {
   let inString = false
   let isEscaped = false
   let result = ''
-  const stack: ('{' | '[')[] = []
+  const stack: StackFrame[] = []
 
   for (let i = 0; i < str.length; i++) {
     const char = str[i]
@@ -39,12 +47,34 @@ export function escapeUnescapedControlCharsInJson(str: string): string {
     }
 
     if (!inString) {
-      if (char === '{' || char === '[') {
-        stack.push(char)
+      if (char === '{') {
+        stack.push({ type: '{', expect: 'key' })
         result += char
         continue
-      } else if (char === '}' || char === ']') {
+      } else if (char === '[') {
+        stack.push({ type: '[' })
+        result += char
+        continue
+      } else if (char === '}') {
         if (stack.length > 0) stack.pop()
+        const top = stack[stack.length - 1]
+        if (top && top.type === '{') top.expect = 'comma_or_end'
+        result += char
+        continue
+      } else if (char === ']') {
+        if (stack.length > 0) stack.pop()
+        const top = stack[stack.length - 1]
+        if (top && top.type === '{') top.expect = 'comma_or_end'
+        result += char
+        continue
+      } else if (char === ':') {
+        const top = stack[stack.length - 1]
+        if (top && top.type === '{') top.expect = 'value'
+        result += char
+        continue
+      } else if (char === ',') {
+        const top = stack[stack.length - 1]
+        if (top && top.type === '{') top.expect = 'key'
         result += char
         continue
       } else if (char === '"') {
@@ -64,24 +94,39 @@ export function escapeUnescapedControlCharsInJson(str: string): string {
     // Inside string: check if char === '"'
     if (char === '"') {
       const rest = str.slice(i + 1)
-      const currentContext = stack[stack.length - 1]
+      const top = stack[stack.length - 1]
 
       let isDelimiter = false
-      if (currentContext === '[') {
-        // Inside array: closing quote of an element is followed by comma, closing bracket, or end of input
-        isDelimiter = /^\s*(?:,|\]|$)/.test(rest)
-      } else if (currentContext === '{') {
-        // Inside object:
-        // Could be closing quote of key (followed by colon ':')
-        // Or closing quote of value (followed by comma + next key, or closing brace '}')
-        isDelimiter = /^\s*(?::|,\s*(?:["']?[a-zA-Z0-9_\u4e00-\u9fa5]+["']?\s*:|[}\]])|[}]|$)/.test(rest)
-      } else {
+      if (!top) {
         // Root level
         isDelimiter = /^\s*(?:,|:|[}\]]|$)/.test(rest)
+      } else if (top.type === '[') {
+        // Inside array: closing quote of an element is followed by comma, closing bracket, or end of input
+        isDelimiter = /^\s*(?:,|\]|$)/.test(rest)
+      } else if (top.type === '{') {
+        if (top.expect === 'key') {
+          // Inside object key: closing quote of a key MUST be followed by colon ':'
+          isDelimiter = /^\s*:/.test(rest)
+        } else {
+          // Inside object value: closing quote of a value is followed by comma + next key, or closing brace '}', or end
+          // Also supports missing comma where next key follows immediately: (?=["'])
+          isDelimiter = /^\s*(?:(?:,|(?=["']))\s*(?:["'][^"':]{1,60}["']\s*:|\*\*[a-zA-Z0-9_\s-]{1,60}\*\*\s*:|[a-zA-Z_$][a-zA-Z0-9_$-]{0,60}\s*:|[}\]])|[}\]]|$)/.test(rest)
+        }
       }
 
       if (isDelimiter) {
         inString = false
+        if (top && top.type === '{') {
+          if (top.expect === 'key') {
+            top.expect = 'colon'
+          } else {
+            if (/^\s*["'*a-zA-Z_$]/.test(rest)) {
+              top.expect = 'key'
+            } else {
+              top.expect = 'comma_or_end'
+            }
+          }
+        }
         result += char
       } else {
         // Interior unescaped quote: escape it to preserve valid JSON
@@ -114,45 +159,107 @@ export function cleanGlossaryLine(str: string, isEnglish: boolean = false): stri
   // 1. Join CJK characters broken across newlines/whitespace (e.g., "第一\n  届" -> "第一届")
   cleaned = cleaned.replace(/([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])\s*[\r\n]+\s*(?=[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])/g, '$1')
 
-  // 2. Join hyphenated words broken across newlines (e.g., "adminis-\n  tration" -> "administration")
+  // 2. Join digits broken across newlines (e.g., "199\n  3" -> "1993")
+  cleaned = cleaned.replace(/(\d)\s*[\r\n]+\s*(?=\d)/g, '$1')
+
+  // 3. Join digits and CJK characters/punctuation broken across newlines (e.g., "1993\n  年" -> "1993年", "于\n  1993" -> "于1993")
+  cleaned = cleaned.replace(/(\d)\s*[\r\n]+\s*(?=[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])/g, '$1')
+  cleaned = cleaned.replace(/([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])\s*[\r\n]+\s*(?=\d)/g, '$1')
+
+  // 4. Join hyphenated words broken across newlines (e.g., "adminis-\n  tration" -> "administration")
   cleaned = cleaned.replace(/([a-zA-Z])-\s*[\r\n]+\s*([a-zA-Z])/g, '$1$2')
 
-  // 3. Fix orphaned punctuation separated by newlines (e.g. "debate\n." -> "debate.")
-  cleaned = cleaned.replace(/\s*[\r\n]+\s*([.,;:?!，。；：？！])/g, '$1')
+  // 5. Fix orphaned punctuation separated by newlines (e.g. "debate\n." -> "debate.")
+  cleaned = cleaned.replace(/\s*[\r\n]+\s*([.,;:?!，。；：？！\u3000-\u303f\uff00-\uffef])/g, '$1')
 
-  // 4. Join English words broken across newlines with a single space
-  cleaned = cleaned.replace(/([a-zA-Z0-9.,;:?!])\s*[\r\n]+\s*([a-zA-Z0-9])/g, '$1 $2')
+  // 6. For Chinese text, join English words adjacent to CJK across newlines (e.g. "Trump\n  政府" -> "Trump政府")
+  if (!isEnglish) {
+    cleaned = cleaned.replace(/([a-zA-Z])\s*[\r\n]+\s*(?=[\u4e00-\u9fa5])/g, '$1')
+    cleaned = cleaned.replace(/([\u4e00-\u9fa5])\s*[\r\n]+\s*(?=[a-zA-Z])/g, '$1')
+  }
 
-  // 5. Replace any remaining newlines with a space
-  cleaned = cleaned.replace(/[\r\n]+/g, ' ')
+  // 7. Join English words broken across newlines with a single space
+  cleaned = cleaned.replace(/([a-zA-Z])\s*[\r\n]+\s*([a-zA-Z])/g, '$1 $2')
 
-  // 6. Join consecutive CJK characters separated by spaces (e.g. "卡 什 · 帕 特 尔" -> "卡什·帕特尔")
-  // Using lookahead so every consecutive pair is matched without skipping alternate characters
+  // 8. Replace any remaining newlines
+  if (isEnglish) {
+    cleaned = cleaned.replace(/[\r\n]+/g, ' ')
+  } else {
+    // In Chinese text, newlines should not introduce artificial spaces
+    cleaned = cleaned.replace(/[\r\n]+/g, '')
+  }
+
+  // 9. Join consecutive CJK characters separated by spaces (e.g. "卡 什 · 帕 特 尔" -> "卡什·帕特尔")
   cleaned = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1')
 
-  // 7. Remove spaces between CJK characters and punctuation, or between CJK punctuation marks
+  // 10. In Chinese text, repair 4-digit years accidentally separated by spaces before "年" (e.g. "199 3年" -> "1993年", "202 4年" -> "2024年")
+  if (!isEnglish) {
+    cleaned = cleaned.replace(/(18\d|19\d|20\d)\s+(\d)\s*(?=[年月日\-/])/g, '$1$2')
+    cleaned = cleaned.replace(/(18|19|20)\s+(\d{2})\s*(?=[年月日\-/])/g, '$1$2')
+    cleaned = cleaned.replace(/(\d+)\s+(?=[\u4e00-\u9fa5])/g, '$1')
+    cleaned = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=\d)/g, '$1')
+    cleaned = cleaned.replace(/(18\d|19\d|20\d)\s+(\d)(?=年)/g, '$1$2')
+    cleaned = cleaned.replace(/(18|19|20)\s+(\d{2})(?=年)/g, '$1$2')
+  } else {
+    // In English text, repair split 4-digit years (e.g. "199 3" -> "1993")
+    cleaned = cleaned.replace(/\b(18\d|19\d|20\d)\s+(\d)\b/g, '$1$2')
+    cleaned = cleaned.replace(/\b(18|19|20)\s+(\d{2})\b/g, '$1$2')
+  }
+
+  // 11. Remove spaces between CJK characters and punctuation, or between CJK punctuation marks
   cleaned = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=[，。！？；：、“”‘’（）《》·])/g, '$1')
   cleaned = cleaned.replace(/([，。！？；：、“”‘’（）《》·])\s+(?=[\u4e00-\u9fa5])/g, '$1')
   cleaned = cleaned.replace(/([，。！？；：、“”‘’（）《》·])\s+(?=[，。！？；：、“”‘’（）《》·])/g, '$1')
 
-  // 8. Remove stray horizontal whitespace before punctuation marks (e.g. "word ." -> "word.")
+  // 12. Remove stray horizontal whitespace before punctuation marks (e.g. "word ." -> "word.")
   cleaned = cleaned.replace(/(\S)[ \t]+([.,;:?!，。；：？！])/g, '$1$2')
 
-  // 9. Collapse multiple dots
+  // 13. Collapse multiple dots
   cleaned = cleaned.replace(/\.{4,}/g, '...')
   cleaned = cleaned.replace(/(?<!\.)\.\.(?!\.)/g, '.')
 
-  // 10. Collapse multiple spaces into one space
+  // 14. Collapse multiple spaces into one space
   cleaned = cleaned.replace(/[ \t]+/g, ' ')
 
   return cleaned.trim()
 }
 
 export const GLOSSARY_FIELD_ALIASES: Record<'term_cn' | 'term_en' | 'def_cn' | 'def_en', string[]> = {
-  term_cn: ['term_cn', 'termCn', 'term_zh', 'chinese_term', 'term_chinese', 'chineseTerm', 'chinese', '中文术语', '中文'],
-  term_en: ['term_en', 'termEn', 'english_term', 'term_english', 'englishTerm', 'english', 'term', '英文术语', '英文'],
-  def_cn: ['def_cn', 'defCn', 'def_zh', 'chinese_def', 'def_chinese', 'chineseDef', 'definition_cn', 'definition_zh', 'chinese_definition', '中文定义', '中文解释', '中文释义'],
-  def_en: ['def_en', 'defEn', 'english_def', 'def_english', 'englishDef', 'definition_en', 'english_definition', 'definition', '英文定义', '英文解释', '英文释义']
+  term_cn: ['term_cn', 'termCn', 'term_zh', 'chinese_term', 'term_chinese', 'chineseTerm', 'chinese', 'term cn', 'term_ cn', 'term-cn', 'chinese term', '中文术语', '中文'],
+  term_en: ['term_en', 'termEn', 'english_term', 'term_english', 'englishTerm', 'english', 'term', 'term en', 'term_ en', 'term-en', 'english term', '英文术语', '英文'],
+  def_cn: ['def_cn', 'defCn', 'def_zh', 'chinese_def', 'def_chinese', 'chineseDef', 'definition_cn', 'definition_zh', 'chinese_definition', 'def cn', 'def_ cn', 'def-cn', 'chinese def', 'definition cn', 'chinese definition', 'explanation_cn', 'explanation cn', 'explanation_zh', 'meaning_cn', 'meaning cn', 'meaning_zh', '中文定义', '中文解释', '中文释义'],
+  def_en: ['def_en', 'defEn', 'english_def', 'def_english', 'englishDef', 'definition_en', 'english_definition', 'definition', 'def en', 'def_ en', 'def-en', 'english def', 'definition en', 'english definition', 'explanation_en', 'explanation en', 'explanation', 'meaning_en', 'meaning en', 'meaning', '英文定义', '英文解释', '英文释义']
+}
+
+export function getGlossaryField(data: any, aliases: string[]): string {
+  if (!data || typeof data !== 'object') return ''
+
+  // 1. Direct key match
+  for (const alias of aliases) {
+    if (data[alias] !== undefined && data[alias] !== null && String(data[alias]).trim() !== '') {
+      return String(data[alias]).trim()
+    }
+  }
+
+  // 2. Normalized key match (case-insensitive, ignoring underscores, spaces, hyphens, and quotes)
+  const normalizedDataKeys = new Map<string, string>()
+  for (const [key, val] of Object.entries(data)) {
+    if (val !== undefined && val !== null && String(val).trim() !== '') {
+      const normKey = key.toLowerCase().replace(/[\s_\-.*`'"]+/g, '')
+      if (!normalizedDataKeys.has(normKey)) {
+        normalizedDataKeys.set(normKey, String(val).trim())
+      }
+    }
+  }
+
+  for (const alias of aliases) {
+    const normAlias = alias.toLowerCase().replace(/[\s_\-.*`'"]+/g, '')
+    if (normalizedDataKeys.has(normAlias)) {
+      return normalizedDataKeys.get(normAlias)!
+    }
+  }
+
+  return ''
 }
 
 export function extractGlossaryFieldsFromText(text: string): Record<string, string> {
@@ -165,7 +272,7 @@ export function extractGlossaryFieldsFromText(text: string): Record<string, stri
       const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       // Match key with optional quotes/asterisks/bullets, followed by colon or equal sign
       const pattern = new RegExp(
-        `(?:^|[\\r\\n,{]\\s*)[*"-]*\\s*${escapedAlias}\\s*[*"-]*\\s*[:=]\\s*(?:"|'|“)?([\\s\\S]*?)(?=(?:["'”]?\\s*[,;\\r\\n]+\\s*[*"-]*\\s*(?:${allAliasesPattern})\\s*[*"-]*\\s*[:=])|["'”]?\\s*\\}\\s*$|$)`,
+        `(?:^|[\\r\\n,{]\\s*)[*"-]*\\s*${escapedAlias}\\s*[*"-]*\\s*[:=]\\s*(?:"|'|“)?([\\s\\S]*?)(?=(?:["'”]?\\s*[,;\\r\\n]+\\s*[*"-]*\\s*(?:${allAliasesPattern}|[a-zA-Z_\u4e00-\u9fa5][a-zA-Z0-9_ \t\u4e00-\u9fa5-]*)\\s*[*"-]*\\s*[:=])|["'”]?\\s*\\}\\s*$|$)`,
         'i'
       )
       const match = text.match(pattern)
@@ -252,14 +359,19 @@ export function parseGlossaryResponse(
     cleaned = cleaned.substring(firstBrace, lastBrace + 1)
   }
 
+  // 3. Pre-repair broken JSON keys across newlines or spaces (e.g. "def_\n  en": -> "def_en":, "def_ en": -> "def_en":, "term  cn": -> "term_cn":)
+  cleaned = cleaned.replace(/(["']?)(def|term|definition|explanation|meaning)[_\s-]*[\r\n]*[_\s-]*(en|cn|zh)\1\s*:/gi, '"$2_$3":')
+  cleaned = cleaned.replace(/(["']?)(chinese|english)[_\s-]*[\r\n]*[_\s-]*(term|def|definition|explanation|meaning)\1\s*:/gi, '"$2_$3":')
+  cleaned = cleaned.replace(/(["']?)(def|term)\s+([a-zA-Z0-9_\u4e00-\u9fa5]+)\1\s*:/gi, '"$2_$3":')
+
   let data: any = null
 
-  // 3. Try standard JSON.parse
+  // 4. Try standard JSON.parse
   try {
     data = JSON.parse(cleaned)
   } catch {}
 
-  // 4. Try escaping unescaped newlines/control characters/internal quotes
+  // 5. Try escaping unescaped newlines/control characters/internal quotes
   if (!data) {
     try {
       const escaped = escapeUnescapedControlCharsInJson(cleaned)
@@ -267,7 +379,7 @@ export function parseGlossaryResponse(
     } catch {}
   }
 
-  // 5. Try lenient sanitization (trailing commas, quotes, etc.)
+  // 6. Try lenient sanitization (trailing commas, quotes, etc.)
   if (!data) {
     try {
       const sanitized = sanitizeLenientJson(escapeUnescapedControlCharsInJson(cleaned))
@@ -275,17 +387,17 @@ export function parseGlossaryResponse(
     } catch {}
   }
 
-  // 6. Regex field extraction fallback for unquoted / markdown / malformed responses
+  // 7. Regex field extraction fallback for unquoted / markdown / malformed responses
   if (!data || typeof data !== 'object') {
     data = extractGlossaryFieldsFromText(cleaned)
   }
 
   if (!data) return null
 
-  let termCn = data.term_cn || data.termCn || data.chinese_term || data.term_zh || ''
-  let termEn = data.term_en || data.termEn || data.english_term || data.term || ''
-  let defCn = data.def_cn || data.defCn || data.chinese_def || data.definition_cn || data.def_zh || ''
-  let defEn = data.def_en || data.defEn || data.english_def || data.definition_en || ''
+  let termCn = getGlossaryField(data, GLOSSARY_FIELD_ALIASES.term_cn)
+  let termEn = getGlossaryField(data, GLOSSARY_FIELD_ALIASES.term_en)
+  let defCn = getGlossaryField(data, GLOSSARY_FIELD_ALIASES.def_cn)
+  let defEn = getGlossaryField(data, GLOSSARY_FIELD_ALIASES.def_en)
 
   termCn = cleanGlossaryLine(termCn, false)
   termEn = cleanGlossaryLine(termEn, true)
@@ -302,6 +414,14 @@ export function parseGlossaryResponse(
     return null
   }
 
+  // Fallback to userTerm if one of the language terms is missing and matches userTerm language
+  if (!termEn && userTerm && !/[\u4e00-\u9fa5]/.test(userTerm)) {
+    termEn = userTerm.trim()
+  }
+  if (!termCn && userTerm && /[\u4e00-\u9fa5]/.test(userTerm)) {
+    termCn = userTerm.trim()
+  }
+
   // Fallbacks to ensure neither line is blank
   if (!termCn && termEn) termCn = termEn
   if (!termEn && termCn) termEn = termCn
@@ -314,16 +434,241 @@ export function parseGlossaryResponse(
   }
 }
 
+export interface AiMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>
+}
+
+export interface AiCallOptions {
+  messages?: AiMessage[]
+  system?: string
+  user?: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>
+  prompt?: string
+  temperature?: number
+  maxTokens?: number
+  responseFormat?: { type: 'json_object' } | null
+  timeoutMs?: number
+}
+
+// Shared API call logic with structured output fallback and role separation
+export async function callAiApi(
+  request: string | AiCallOptions,
+  settings: Record<string, string>,
+  extraOptions?: Partial<AiCallOptions>
+): Promise<{ success: boolean; result?: string; error?: string }> {
+  const options: AiCallOptions = typeof request === 'string'
+    ? { prompt: request, ...extraOptions }
+    : { ...request, ...extraOptions }
+
+  const apiKey = (settings['aiKey'] || '').trim()
+  let apiUrl = (settings['aiUrl'] || 'https://api.openai.com/v1').trim()
+  const model = (settings['aiModel'] || 'gpt-4o').trim()
+
+  if (!apiKey) {
+    return { success: false, error: 'AI API Key is not configured in Settings.' }
+  }
+
+  // Normalize API URL: remove trailing slashes first, then ensure it ends with /chat/completions
+  apiUrl = apiUrl.replace(/\/+$/, '')
+  if (!apiUrl.endsWith('/chat/completions')) {
+    apiUrl += '/chat/completions'
+  }
+
+  let messages: AiMessage[] = []
+  if (options.messages && options.messages.length > 0) {
+    messages = options.messages.map(m => ({ ...m }))
+  } else {
+    if (options.system && options.system.trim()) {
+      messages.push({ role: 'system', content: options.system.trim() })
+    }
+    if (options.user !== undefined && options.user !== null) {
+      messages.push({ role: 'user', content: options.user })
+    } else if (options.prompt) {
+      messages.push({ role: 'user', content: options.prompt })
+    }
+  }
+
+  if (messages.length === 0) {
+    return { success: false, error: 'No prompt or messages provided for AI request.' }
+  }
+
+  let currentResponseFormat = options.responseFormat || null
+
+  // Ensure JSON keyword appears in prompt if json_object response format is active (OpenAI constraint)
+  if (currentResponseFormat && currentResponseFormat.type === 'json_object') {
+    const hasJsonWord = messages.some(m => {
+      if (typeof m.content === 'string') {
+        return /json/i.test(m.content)
+      }
+      if (Array.isArray(m.content)) {
+        return m.content.some(part => part.type === 'text' && /json/i.test(part.text))
+      }
+      return false
+    })
+    if (!hasJsonWord) {
+      if (messages[0] && typeof messages[0].content === 'string') {
+        messages[0] = { ...messages[0], content: messages[0].content + '\nYou must respond in valid JSON format.' }
+      } else {
+        messages.unshift({ role: 'system', content: 'You must respond in valid JSON format.' })
+      }
+    }
+  }
+
+  const timeoutMs = options.timeoutMs || 60000
+  const temperature = options.temperature !== undefined ? options.temperature : 0.7
+  const maxTokens = options.maxTokens || 2000
+
+  let lastError: any = null
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const payload: any = {
+        model: model,
+        messages: messages,
+        temperature: temperature,
+        max_tokens: maxTokens
+      }
+      if (currentResponseFormat) {
+        payload.response_format = currentResponseFormat
+      }
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.text()
+
+        // Fallback retry: If HTTP 400 or 422 occurred while response_format was active,
+        // retry immediately without response_format to accommodate custom proxies or models that don't support JSON mode.
+        if ((response.status === 400 || response.status === 422) && currentResponseFormat) {
+          console.warn(`[AI API] Received HTTP ${response.status} with response_format (${errorData}). Retrying without response_format...`)
+          currentResponseFormat = null
+          const fallbackPayload = { ...payload }
+          delete fallbackPayload.response_format
+
+          try {
+            const fallbackResponse = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify(fallbackPayload),
+              signal: AbortSignal.timeout(timeoutMs)
+            })
+
+            if (!fallbackResponse.ok) {
+              const fallbackError = await fallbackResponse.text()
+              return { success: false, error: `API Error (${fallbackResponse.status}): ${fallbackError}` }
+            }
+
+            const fallbackData = await fallbackResponse.json()
+            const fallbackResult = fallbackData.choices?.[0]?.message?.content?.trim()
+            if (!fallbackResult) {
+              const fallbackErrMsg = fallbackData.error?.message || fallbackData.error || 'API returned an empty response.'
+              return { success: false, error: typeof fallbackErrMsg === 'string' ? fallbackErrMsg : JSON.stringify(fallbackErrMsg) }
+            }
+            return { success: true, result: fallbackResult }
+          } catch (fallbackErr: any) {
+            lastError = fallbackErr
+            if (attempt === 0) {
+              await new Promise(r => setTimeout(r, 2000))
+              continue
+            }
+          }
+        }
+
+        // Retry on transient server errors or rate limits on attempt 0
+        if (attempt === 0 && (response.status === 429 || response.status >= 500)) {
+          lastError = new Error(`API Error (${response.status}): ${errorData}`)
+          await new Promise(r => setTimeout(r, 2000))
+          continue
+        }
+
+        return { success: false, error: `API Error (${response.status}): ${errorData}` }
+      }
+
+      const data = await response.json()
+      const result = data.choices?.[0]?.message?.content?.trim()
+
+      if (!result) {
+        const errMsg = data.error?.message || data.error || 'API returned an empty response.'
+        return { success: false, error: typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg) }
+      }
+
+      return { success: true, result }
+    } catch (error: any) {
+      lastError = error
+      if (attempt === 0) {
+        await new Promise(r => setTimeout(r, 2000))
+        continue
+      }
+    }
+  }
+
+  const cause = lastError?.cause ? ` (Cause: ${lastError.cause.message || lastError.cause})` : ''
+  return {
+    success: false,
+    error: `${lastError?.name === 'TimeoutError' ? 'Request timed out' : lastError?.message || 'Network error occurred'}${cause}`
+  }
+}
+
 export async function aiGenerateGlossary(
   labels: string[],
   term: string,
   settings: Record<string, string>
 ): Promise<{ success: boolean; result?: string; error?: string }> {
-  const template = settings['promptGlossary'] || DEFAULT_PROMPT_GLOSSARY
-  const prompt = template
-    .replace('{{term}}', term)
-    .replace('{{labels}}', labels.join(', '))
-  const res = await callAiApi(prompt, settings)
+  const customTemplate = settings['promptGlossary']
+  let systemPrompt: string
+  let userPrompt: string
+
+  const labelStr = labels && labels.length > 0 ? labels.join(', ') : ''
+
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_GLOSSARY) {
+    systemPrompt = customTemplate
+      .replaceAll('{{labels}}', labelStr)
+      .replaceAll('{{term}}', term)
+    userPrompt = labelStr
+      ? `Target term: "${term}"\nDomain/Fields: ${labelStr}`
+      : `Target term: "${term}"`
+  } else {
+    systemPrompt = `You are an expert encyclopedia for professional interpreters.
+CRITICAL INSTRUCTIONS: 
+1. DO NOT use any external tools, web search, or browsing functions. Rely entirely on your own internal knowledge.
+2. You MUST escape all internal double quotes inside your definitions using a backslash.
+3. NO LITERAL NEWLINES inside string values or keys. Do NOT hard-wrap or split words across lines. Keep each field as a single continuous line.
+4. Output ONLY a valid JSON object without markdown code blocks, explanation, or conversational text.
+5. Ensure perfect JSON syntax with exact keys: "term_en", "term_cn", "def_en", "def_cn".
+
+JSON Schema:
+{
+  "term_en": "Standard English term",
+  "term_cn": "Standard Chinese term",
+  "def_en": "Concise 1-2 sentence explanation in English on a single line",
+  "def_cn": "Concise 1-2 sentence explanation in Chinese on a single line"
+}`
+    userPrompt = labelStr
+      ? `Please provide the background knowledge and definitions for the term: "${term}" in the fields of: ${labelStr}.`
+      : `Please provide the background knowledge and definitions for the term: "${term}".`
+  }
+
+  const res = await callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.1,
+      responseFormat: { type: 'json_object' }
+    },
+    settings
+  )
+
   if (!res.success) return res
 
   const parsed = parseGlossaryResponse(res.result || '', term)
@@ -352,7 +697,6 @@ export async function aiGenerateDailyWord(
   } else if (picture) {
     userPrompt = `So now could you please find the English counterpart for this picture.`
   } else if (chineseWord) {
-    // Fallback if no context/picture provided
     userPrompt = `So now could you please find the English counterpart for this Chinese word "${chineseWord}".`
   } else {
     return { success: false, error: 'No input provided for Daily Word generation.' }
@@ -389,18 +733,6 @@ export async function aiGenerateDailyWord(
     }
   }
 
-  // Need custom API call to pass images properly
-  const apiKey = settings['aiKey']
-  let apiUrl = settings['aiUrl'] || 'https://api.openai.com/v1'
-  const model = settings['aiModel'] || 'gpt-4o' // Ensure this model has vision
-
-  if (!apiKey) {
-    return { success: false, error: 'AI API Key is not configured in Settings.' }
-  }
-  if (!apiUrl.endsWith('/chat/completions')) {
-    apiUrl = apiUrl.replace(/\/+$/, '') + '/chat/completions'
-  }
-
   const content: any[] = [{ type: 'text', text: userPrompt }]
   if (imageBase64) {
     content.push({
@@ -409,47 +741,53 @@ export async function aiGenerateDailyWord(
     })
   }
 
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: content }
-        ],
-        temperature: 0.7,
-        max_tokens: 2000
-      })
-    })
+  const res = await callAiApi(
+    {
+      system: systemPrompt,
+      user: content,
+      temperature: 0.2
+    },
+    settings
+  )
 
-    if (!response.ok) {
-      const errorData = await response.text()
-      return { success: false, error: `API Error (${response.status}): ${errorData}` }
-    }
+  if (!res.success || !res.result) return res
 
-    const data = await response.json()
-    const result = data.choices?.[0]?.message?.content?.trim()
-    if (!result) return { success: false, error: 'API returned an empty response.' }
-
-    return { success: true, result: cleanAiExpression(result) }
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Network error occurred.' }
-  }
+  return { success: true, result: cleanAiExpression(res.result) }
 }
 
 export async function aiRewritePractice(text: string, targetWords: string[], settings: any) {
   const dbText = targetWords.join('\n')
-  const template = settings['promptRewrite'] || DEFAULT_PROMPT_REWRITE
-  const prompt = template
-    .replace('{{dbText}}', dbText)
-    .replace('{{text}}', text)
+  const customTemplate = settings['promptRewrite']
+  let systemPrompt: string
+  let userPrompt: string
 
-  return callAiApi(prompt, settings)
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_REWRITE) {
+    systemPrompt = customTemplate
+      .replaceAll('{{dbText}}', dbText)
+      .replaceAll('{{text}}', text)
+    userPrompt = `Text:\n${text}`
+  } else {
+    systemPrompt = `You are a native English speaker who works as an elite professional Simultaneous interpreter. 
+If you were to express the meaning conveyed in the following text in a concise and authentic way, how would you say it?
+Here is a custom vocabulary shortlist pulled from the user's personal database:
+<database>
+${dbText}
+</database>
+While you are rephrasing, some CRITICAL INSTRUCTIONS:
+1. STRICT FIDELITY: Do NOT change the speaker's perspective, point of view, or fundamental context. If the original uses "I" or "we", keep it. You are interpreting their exact message, just polishing the delivery.
+2. DATABASE INTEGRATION: Since the words from the database are what I want to train, so You MUST attempt to naturally integrate provided database expressions.
+3. CONTENT RESTRICTION: You MAY ONLY subtract information or sentences because it is self-implied or common-knowledge according to the context. But you MUSTN'T add information that you cannot guarantee accuracy.`
+    userPrompt = `Text:\n${text}`
+  }
+
+  return callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.7
+    },
+    settings
+  )
 }
 
 // Unused generation (Ready Versions is direct input only per PDF)
@@ -458,64 +796,6 @@ export async function aiGenerateReadyVersion(
   settings: Record<string, string>
 ): Promise<{ success: boolean; result?: string; error?: string }> {
   return { success: false, error: 'Ready Versions do not use AI.' }
-}
-
-// Shared API call logic
-async function callAiApi(prompt: string, settings: Record<string, string>) {
-  const apiKey = settings['aiKey']
-  let apiUrl = settings['aiUrl'] || 'https://api.openai.com/v1'
-  const model = settings['aiModel'] || 'gpt-4o'
-
-  if (!apiKey) {
-    return { success: false, error: 'AI API Key is not configured in Settings.' }
-  }
-
-  if (!apiUrl.endsWith('/chat/completions')) {
-    apiUrl = apiUrl.replace(/\/+$/, '') + '/chat/completions'
-  }
-
-  let lastError = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-          max_tokens: 2000
-        }),
-        signal: AbortSignal.timeout(60000) // 60s timeout
-      })
-
-      if (!response.ok) {
-        const errorData = await response.text()
-        return { success: false, error: `API Error (${response.status}): ${errorData}` }
-      }
-
-      const data = await response.json()
-      const result = data.choices?.[0]?.message?.content?.trim()
-
-      if (!result) {
-        return { success: false, error: 'API returned an empty response.' }
-      }
-
-      return { success: true, result }
-    } catch (error: any) {
-      lastError = error;
-      if (attempt === 0) {
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
-      }
-    }
-  }
-  
-  const cause = lastError?.cause ? ` (Cause: ${lastError.cause.message || lastError.cause})` : '';
-  return { success: false, error: `${lastError?.name === 'TimeoutError' ? 'Request timed out' : lastError?.message || 'Network error occurred'}${cause}` }
 }
 
 export function isFullyWrappedInQuotes(str: string): { isWrapped: boolean; inner: string; trailingPunct: string } {
@@ -622,23 +902,38 @@ export function cleanAiExpression(raw: string): string {
   cleaned = cleaned.replace(/([.,;:?!，。；：？！])\s*[\r\n]+\s*[.,;:?!，。；：？！]+/g, '$1')
 
   // 7. Fix orphaned punctuation separated by newlines (e.g. "debate\n." -> "debate.")
-  cleaned = cleaned.replace(/\s*[\r\n]+\s*([.,;:?!，。；：？！])/g, '$1')
+  cleaned = cleaned.replace(/\s*[\r\n]+\s*([.,;:?!，。；：？！\u3000-\u303f\uff00-\uffef])/g, '$1')
 
-  // 8. Remove stray horizontal whitespace before punctuation marks (e.g. "debate ." -> "debate.")
+  // 8. Join hyphenated words broken across newlines (e.g. "adminis-\n  tration" -> "administration")
+  cleaned = cleaned.replace(/([a-zA-Z])-\s*[\r\n]+\s*([a-zA-Z])/g, '$1$2')
+
+  // 9. Join digits broken across newlines (e.g. "199\n  3" -> "1993")
+  cleaned = cleaned.replace(/(\d)\s*[\r\n]+\s*(?=\d)/g, '$1')
+
+  // 10. Join CJK characters and numbers broken across newlines
+  cleaned = cleaned.replace(/([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])\s*[\r\n]+\s*(?=[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])/g, '$1')
+  cleaned = cleaned.replace(/(\d)\s*[\r\n]+\s*(?=[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])/g, '$1')
+  cleaned = cleaned.replace(/([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])\s*[\r\n]+\s*(?=\d)/g, '$1')
+
+  // 11. Repair split 4-digit years (e.g. "199 3" -> "1993")
+  cleaned = cleaned.replace(/\b(18\d|19\d|20\d)\s+(\d)\b/g, '$1$2')
+  cleaned = cleaned.replace(/\b(18|19|20)\s+(\d{2})\b/g, '$1$2')
+
+  // 12. Remove stray horizontal whitespace before punctuation marks (e.g. "debate ." -> "debate.")
   cleaned = cleaned.replace(/(\S)[ \t]+([.,;:?!，。；：？！])/g, '$1$2')
 
-  // 9. Collapse all remaining newlines into a single space (concise definitions should not contain artificial soft wraps)
+  // 12. Collapse all remaining newlines into a single space (concise definitions should not contain artificial soft wraps)
   cleaned = cleaned.replace(/\s*[\r\n]+\s*/g, ' ')
 
-  // 10. Collapse accidental duplicate dots/commas (preserving standard ellipsis "...")
+  // 13. Collapse accidental duplicate dots/commas (preserving standard ellipsis "...")
   cleaned = cleaned.replace(/([,;:?!，。；：？！])\1+/g, '$1')
   cleaned = cleaned.replace(/\.{4,}/g, '...')
   cleaned = cleaned.replace(/(?<!\.)\.\.(?!\.)/g, '.')
 
-  // 11. Re-strip surrounding/lone quotes in case punctuation or newline cleanup exposed them
+  // 14. Re-strip surrounding/lone quotes in case punctuation or newline cleanup exposed them
   cleaned = stripWrappingQuotes(cleaned)
 
-  // 12. Clean excess horizontal whitespace
+  // 15. Clean excess horizontal whitespace
   cleaned = cleaned.replace(/[ \t]+/g, ' ').trim()
 
   return cleaned
@@ -650,12 +945,30 @@ export async function aiGenerateExpression(
   front: string,
   settings: Record<string, string>
 ): Promise<{ success: boolean; result?: string; error?: string }> {
-  const template = settings['promptExpression'] || DEFAULT_PROMPT_EXPRESSION
-  const prompt = template
-    .replace(/{{front}}/g, front)
-    .replace('{{context}}', context)
+  const customTemplate = settings['promptExpression']
+  let systemPrompt: string
+  let userPrompt: string
 
-  const res = await callAiApi(prompt, settings)
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_EXPRESSION) {
+    systemPrompt = customTemplate
+      .replaceAll('{{front}}', front)
+      .replaceAll('{{context}}', context)
+    userPrompt = `Target expression: "${front}"\nContext: "${context}"`
+  } else {
+    systemPrompt = `Task: Provide a concise English definition for the target expression based on the provided context.
+STRICT RULE: Do NOT use the target expression in the definition and DO NOT provide detailed explanation of how the word means inside the context.
+OUTPUT FORMAT: Output ONLY the concise definition text directly on a single line. Do NOT wrap in quotes or code blocks, and do NOT place punctuation marks on separate lines.`
+    userPrompt = `Target expression: "${front}"\nContext: "${context}"`
+  }
+
+  const res = await callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.2
+    },
+    settings
+  )
   if (!res.success || !res.result) return res
 
   return { success: true, result: cleanAiExpression(res.result) }
@@ -773,14 +1086,46 @@ export async function generateRevisionCloze(
 
   const wordsToBlank = searchWords.join(', ')
 
-  const template = settings['promptRevisionCloze'] || DEFAULT_PROMPT_REVISION_CLOZE
-  const aiPrompt = template
-    .replace('{{display_phrase}}', display_phrase)
-    .replace('{{back}}', back)
-    .replace('{{clean_snippet}}', clean_snippet)
-    .replace('{{wordsToBlank}}', wordsToBlank)
+  const customTemplate = settings['promptRevisionCloze']
+  let systemPrompt: string
+  let userPrompt: string
 
-  const aiRes = await callAiApi(aiPrompt, settings)
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_REVISION_CLOZE) {
+    systemPrompt = customTemplate
+      .replaceAll('{{display_phrase}}', display_phrase)
+      .replaceAll('{{back}}', back)
+      .replaceAll('{{clean_snippet}}', clean_snippet)
+      .replaceAll('{{wordsToBlank}}', wordsToBlank)
+    userPrompt = `<target_phrase>${display_phrase}</target_phrase>\n<definition>${back}</definition>\n<corpus_snippet>${clean_snippet}</corpus_snippet>\n<words_to_blank>[${wordsToBlank}]</words_to_blank>`
+  } else {
+    systemPrompt = `You are an educational AI assistant helping an interpreting student learn English vocabulary.
+<task>
+Paraphrase the provided corpus snippet into a simple context (1 to 3 sentences). 
+You must retain the exact target phrase in your rewritten context.
+</task>
+<rules>
+1. SEMANTIC HINTS: The context must clearly hint at the meaning of the target phrase, making it the only logical answer.
+2. RETAIN TARGET: Keep the exact target phrase and its immediate collocations intact.
+3. CLOZE DELETION: You MUST replace the specific words in your rewritten context that correspond to the following core words with "________" (8 underscores). You must also replace any inflected forms of these words (e.g., if the core word is "play", replace "playing" or "played"). Do not replace pronouns, articles or filler words like "one's", "sb", "sth" unless they are in the brackets.
+4. STRICT OUTPUT: Output ONLY the rewritten English paragraph with the blanks. Do not include conversational filler, intros, or markdown blocks.
+5. NO TRANSFORMATION ARROWS: Do NOT output token-by-token transformation mappings, word lists, or arrows (e.g. NEVER output "word" -> "______"). Return ONLY the complete, natural rewritten paragraph/sentence with the target blanks embedded in context.
+</rules>`
+    userPrompt = `<target_phrase>${display_phrase}</target_phrase>
+<definition>${back}</definition>
+<corpus_snippet>
+${clean_snippet}
+</corpus_snippet>
+<words_to_blank>[${wordsToBlank}]</words_to_blank>`
+  }
+
+  const aiRes = await callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.3
+    },
+    settings
+  )
   if (!aiRes.success || !aiRes.result) {
     return { success: false, error: 'AI failed to rewrite context: ' + aiRes.error }
   }
@@ -799,10 +1144,35 @@ export async function generateRevisionCloze(
 // -----------------------------------------------------------------------------
 
 export async function practicePureListener(text: string, settings: any) {
-  const template = settings['promptPureListener'] || DEFAULT_PROMPT_PURE_LISTENER
-  const prompt = template.replace('{{text}}', text)
+  const customTemplate = settings['promptPureListener']
+  let systemPrompt: string
+  let userPrompt: string
 
-  const aiRes = await callAiApi(prompt, settings)
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_PURE_LISTENER) {
+    systemPrompt = customTemplate.replaceAll('{{text}}', text)
+    userPrompt = `<input_text>\n${text}\n</input_text>`
+  } else {
+    systemPrompt = `You are a "Pure Listener". I am an interpreting student. I will provide you with a text that I produced.
+<task>
+Read the text carefully. Then, provide feedback on the overall logic, structure, and clarity of the message. 
+Summarize the main idea and point out any logical gaps or contradictions.
+</task>
+<rules>
+1. "ALL CLEAR" RULE: You are STRICTLY FORBIDDEN from correcting grammar, vocabulary, collocations, or style. 
+2. You MUST NOT suggest better words or point out grammatical mistakes. Only focus on the broad message and logic.
+3. Your feedback MUST be in the exact same language as my input text.
+</rules>`
+    userPrompt = `<input_text>\n${text}\n</input_text>`
+  }
+
+  const aiRes = await callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.5
+    },
+    settings
+  )
   if (!aiRes.success || !aiRes.result) {
     return { success: false, error: 'AI failed to analyze: ' + aiRes.error }
   }
@@ -1016,16 +1386,57 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     return `[ID: ${c.id}] "${c.front}"${def}`
   }).join('\n')
 
-  const template = settings['promptPracticeRewrite'] || DEFAULT_PROMPT_PRACTICE_REWRITE
-  const prompt = template
-    .replaceAll('{{vocabulary_bank}}', vocabBankStr)
-    .replaceAll('{{vocabularyBank}}', vocabBankStr)
-    .replaceAll('{{cardsContext}}', vocabBankStr)
-    .replaceAll('{{replacementsContext}}', vocabBankStr)
-    .replaceAll('{{text}}', text)
-    .replaceAll('{{input_text}}', text)
+  const customTemplate = settings['promptPracticeRewrite']
+  let systemPrompt: string
+  let userPrompt: string
 
-  const aiRes = await callAiApi(prompt, settings)
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_PRACTICE_REWRITE) {
+    systemPrompt = customTemplate
+      .replaceAll('{{vocabulary_bank}}', vocabBankStr)
+      .replaceAll('{{vocabularyBank}}', vocabBankStr)
+      .replaceAll('{{cardsContext}}', vocabBankStr)
+      .replaceAll('{{replacementsContext}}', vocabBankStr)
+      .replaceAll('{{text}}', text)
+      .replaceAll('{{input_text}}', text)
+    userPrompt = `<input_text>\n${text}\n</input_text>`
+  } else {
+    systemPrompt = `You are an expert English editor and simultaneous interpreter.
+<task>
+Rewrite the input text to make it more natural, idiomatic, and professional by integrating authentic expressions from the provided vocabulary bank.
+</task>
+
+<vocabulary_bank>
+${vocabBankStr}
+</vocabulary_bank>
+
+<rules>
+1. CONSTRAINED SUBSTITUTION: You may ONLY substitute original segments with expressions from the <vocabulary_bank> where they genuinely, naturally, and authentically fit the speaker's intent and sentence context.
+2. DO NOT FORCE SUBSTITUTIONS: If an expression does not fit naturally, do NOT use it. If NO expressions fit authentically, keep the original text structure and meaning intact with minimal or no changes.
+3. PRESERVE PERSPECTIVE & MEANING: Keep the author's original perspective, voice, and core meaning completely intact. Adapt grammatical inflections (tense, agreement, prepositions) only as strictly needed for natural English syntax.
+4. EXPLICIT INLINE TAGGING: Whenever you integrate an expression from the <vocabulary_bank>, wrap that integrated expression (in whatever grammatical form or inflection you used) with an inline tag: <mark id="CARD_ID">inflected expression</mark>, where CARD_ID matches the ID from the <vocabulary_bank>.
+Example: If integrating card with ID 101 ("double down on"), write:
+"The committee decided to <mark id="101">double down on</mark> their renewable energy commitment."
+Do not tag any words or expressions that were not derived from that vocabulary bank card.
+5. RESPONSE FORMAT: You MUST return a single valid raw JSON object with NO surrounding markdown formatting or commentary.
+JSON schema:
+{
+  "rewritten_text": "The final rewritten text with integrated expressions wrapped in <mark id=\\"ID\\">...</mark>",
+  "used_card_ids": [101, 105]
+}
+If no expressions from the vocabulary bank qualify or fit, return the original text in "rewritten_text" (without mark tags) and an empty array [] in "used_card_ids".
+</rules>`
+    userPrompt = `<input_text>\n${text}\n</input_text>`
+  }
+
+  const aiRes = await callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.2,
+      responseFormat: { type: 'json_object' }
+    },
+    settings
+  )
   if (!aiRes.success || !aiRes.result) {
     return { success: false, error: 'AI failed to rewrite text: ' + (aiRes.error || 'Empty response') }
   }
@@ -1077,26 +1488,6 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     rewrittenText = (codeBlockMatch ? codeBlockMatch[1] : raw).trim()
   }
 
-  const usedIdSet = new Set(usedCardIds)
-  let finalCards = candidateCards.filter(c => usedIdSet.has(c.id))
-
-  // Fallback text match if model referenced card front string
-  if (finalCards.length === 0 && usedCardIds.length === 0 && parsed) {
-    const rawIds = parsed.used_card_ids || parsed.usedCardIds || parsed.cards || []
-    if (Array.isArray(rawIds)) {
-      for (const item of rawIds) {
-        const itemStr = String(item).toLowerCase().trim()
-        const found = candidateCards.find(c => {
-          const frontClean = (c.front || '').replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()
-          return frontClean === itemStr || (c.front || '').toLowerCase().trim() === itemStr
-        })
-        if (found && !finalCards.includes(found)) {
-          finalCards.push(found)
-        }
-      }
-    }
-  }
-
   const codeMatch = rewrittenText.match(/```(?:\w+)?\s*([\s\S]*?)\s*```/)
   if (codeMatch) {
     rewrittenText = codeMatch[1].trim()
@@ -1106,47 +1497,138 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     rewrittenText = rewrittenText.slice(1, -1).trim()
   }
 
-  // Scan rewrittenText for integrated expressions from candidate cards and the entire library.
-  // Supplement finalCards with any expressions present in rewrittenText so they are reliably highlighted.
+  // 1. Explicit Inline Markup Parsing (Ground Truth Tagging)
   const allLibraryCards = (dbHandlers.getCards ? dbHandlers.getCards() : allCards) || []
-  const checkedCardIds = new Set<number>(finalCards.map(c => c.id))
+  const markResult = parseMarkedText(rewrittenText, candidateCards, allLibraryCards)
 
-  // First check candidate cards (prioritized)
-  if (candidateCards && candidateCards.length > 0) {
-    for (const card of candidateCards) {
-      if (checkedCardIds.has(card.id)) continue
-      checkedCardIds.add(card.id)
-      if (isCardInText(card, rewrittenText)) {
-        finalCards.push(card)
+  let cleanRewrittenText: string
+  let finalCards: any[] = []
+  let finalSegments: TextSegment[] = []
+
+  if (markResult.cards.length > 0) {
+    // Model provided explicit <mark id="..."> tags
+    cleanRewrittenText = markResult.cleanText
+    finalCards = [...markResult.cards]
+    finalSegments = markResult.segments
+
+    // Also include any candidate cards declared in used_card_ids
+    const existingIdSet = new Set<number>(finalCards.map(c => c.id))
+    for (const cardId of usedCardIds) {
+      if (!existingIdSet.has(cardId)) {
+        const found = candidateCards.find(c => c.id === cardId)
+        if (found) {
+          existingIdSet.add(found.id)
+          finalCards.push(found)
+        }
       }
     }
-  }
 
-  // Also check remaining library cards so any card in the user's database is highlighted if used
-  if (allLibraryCards && allLibraryCards.length > 0) {
-    for (const card of allLibraryCards) {
-      if (checkedCardIds.has(card.id)) continue
-      checkedCardIds.add(card.id)
-      if (isCardInText(card, rewrittenText)) {
-        finalCards.push(card)
+    // Segment any declared or fallback cards from finalCards across the plain-text spans of finalSegments
+    const unsegmentedCards = finalCards.filter(c => !finalSegments.some(s => s.card?.id === c.id))
+    if (unsegmentedCards.length > 0) {
+      const updatedSegments: TextSegment[] = []
+      for (const seg of finalSegments) {
+        if (seg.card) {
+          updatedSegments.push(seg)
+        } else if (seg.text) {
+          const subSegs = segmentTextWithCards(seg.text, unsegmentedCards)
+          updatedSegments.push(...subSegs)
+        }
+      }
+      // Re-merge adjacent plain-text segments
+      const remerged: TextSegment[] = []
+      for (const seg of updatedSegments) {
+        if (!seg.text) continue
+        if (remerged.length > 0 && remerged[remerged.length - 1].card === null && seg.card === null) {
+          remerged[remerged.length - 1].text += seg.text
+        } else {
+          remerged.push(seg)
+        }
+      }
+      finalSegments = remerged
+    }
+  } else {
+    // Model omitted mark tags (plain text or legacy prompt output)
+    cleanRewrittenText = markResult.cleanText || rewrittenText
+
+    const usedIdSet = new Set(usedCardIds)
+    finalCards = candidateCards.filter(c => usedIdSet.has(c.id))
+
+    // Fallback text match if model referenced card front string
+    if (finalCards.length === 0 && usedCardIds.length === 0 && parsed) {
+      const rawIds = parsed.used_card_ids || parsed.usedCardIds || parsed.cards || []
+      if (Array.isArray(rawIds)) {
+        for (const item of rawIds) {
+          const itemStr = String(item).toLowerCase().trim()
+          const found = candidateCards.find(c => {
+            const frontClean = (c.front || '').replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()
+            return frontClean === itemStr || (c.front || '').toLowerCase().trim() === itemStr
+          })
+          if (found && !finalCards.includes(found)) {
+            finalCards.push(found)
+          }
+        }
       }
     }
+
+    // Scoped regex matching within candidateCards ONLY (strictly no full-library blind scan)
+    const checkedCardIds = new Set<number>(finalCards.map(c => c.id))
+    if (candidateCards && candidateCards.length > 0) {
+      for (const card of candidateCards) {
+        if (checkedCardIds.has(card.id)) continue
+        checkedCardIds.add(card.id)
+        if (isCardInText(card, cleanRewrittenText)) {
+          finalCards.push(card)
+        }
+      }
+    }
+
+    finalSegments = segmentTextWithCards(cleanRewrittenText, finalCards)
   }
 
   return {
     success: true,
     result: {
-      text: rewrittenText,
-      cards: finalCards
+      text: cleanRewrittenText,
+      cards: finalCards,
+      segments: finalSegments
     }
   }
 }
 
 export async function practiceAiVersion(text: string, settings: any) {
-  const template = settings['promptAiVersion'] || DEFAULT_PROMPT_AI_VERSION
-  const prompt = template.replace('{{text}}', text)
+  const customTemplate = settings['promptAiVersion']
+  let systemPrompt: string
+  let userPrompt: string
 
-  const aiRes = await callAiApi(prompt, settings)
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_AI_VERSION) {
+    systemPrompt = customTemplate.replaceAll('{{text}}', text)
+    userPrompt = `<input_text>\n${text}\n</input_text>`
+  } else {
+    systemPrompt = `You are an elite, professional conference interpreter.
+<task>
+Reinterpret the following transcript into a flawless, concise, native, and highly idiomatic delivery.
+</task>
+<rules>
+- Maintain the exact original core message.
+- Express the meaning in a concise and native way.
+- Prioritize phrasal verbs or idioms if they are relevant and appropriate.
+- Prioritize verbs over nouns, words or phrases over clauses.
+- Your register should be semi-formal and colloquial unless the text is a formal speech of serious topics.
+- DO NOT provide explanations or commentary. Return ONLY the polished interpretation.
+- Respond in the exact same language as the transcript.
+</rules>`
+    userPrompt = `<input_text>\n${text}\n</input_text>`
+  }
+
+  const aiRes = await callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.7
+    },
+    settings
+  )
   if (!aiRes.success || !aiRes.result) {
     return { success: false, error: 'AI failed to generate elite version: ' + aiRes.error }
   }
@@ -1231,15 +1713,44 @@ export async function aiFilterSynonyms(
   // Construct candidates string
   const candidatesStr = candidates.map(c => `[ID: ${c.id}] Word: ${c.front}\nDefinition: ${c.back}`).join('\n\n')
 
-  const template = settings['promptSynonyms'] || DEFAULT_PROMPT_SYNONYMS
-  const prompt = template
-    .replaceAll('{{targetFront}}', targetFront)
-    .replaceAll('{{targetBack}}', targetBack)
-    .replaceAll('{{context}}', context || '')
-    .replaceAll('{{targetContext}}', context || '')
-    .replaceAll('{{candidatesStr}}', candidatesStr)
+  const customTemplate = settings['promptSynonyms']
+  let systemPrompt: string
+  let userPrompt: string
 
-  const aiRes = await callAiApi(prompt, settings)
+  if (customTemplate && customTemplate !== DEFAULT_PROMPT_SYNONYMS) {
+    systemPrompt = customTemplate
+      .replaceAll('{{targetFront}}', targetFront)
+      .replaceAll('{{targetBack}}', targetBack)
+      .replaceAll('{{context}}', context || '')
+      .replaceAll('{{targetContext}}', context || '')
+      .replaceAll('{{candidatesStr}}', candidatesStr)
+    userPrompt = `Target Word: "${targetFront}"\nDefinition: "${targetBack}"\nGiven Context: "${context}"\n\nCandidates:\n${candidatesStr}`
+  } else {
+    systemPrompt = `You are an expert lexicographer. Your task is to identify valid synonyms for a Target Word from a provided list of Candidates.
+EVALUATION CRITERIA:
+To be selected, a candidate MUST meet ALL of the following criteria:
+1. Core Semantic Overlap: The candidate must represent the same fundamental action, state, or concept. Minor nuances in motivation, intensity, or flavor are FULLY ACCEPTABLE (e.g., "play the contrarian" and "play devil's advocate" are valid synonyms despite nuanced differences in intent).
+2. Contextual Paraphrase: The selected candidate must be one with which the given context can be paraphrased or rewritten while preserving the core message(s).
+3. Strict Concept Boundary: The candidate MUST NOT be a cause, consequence, merely related topic, or antonym. (e.g., if the target is "happy", "joyful" is valid, but "serendipity" is INVALID because serendipity is a lucky event that *causes* happiness, not the emotion itself).
+OUTPUT FORMAT:
+Return a raw JSON array containing ONLY the string IDs of the selected candidates. Do not provide any conversational filler, markdown formatting, or explanations.
+Example: ["1", "5", "8"]`
+    userPrompt = `Target Word: "${targetFront}"
+Definition: "${targetBack}"
+Given Context: "${context}"
+
+Candidates:
+${candidatesStr}`
+  }
+
+  const aiRes = await callAiApi(
+    {
+      system: systemPrompt,
+      user: userPrompt,
+      temperature: 0.1
+    },
+    settings
+  )
   if (!aiRes.success || !aiRes.result) {
     return { success: false, error: 'AI failed to filter synonyms: ' + (aiRes.error || 'Empty response') }
   }

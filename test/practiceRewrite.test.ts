@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { practiceRewrite, extractJsonObjects, extractJsonObject } from '../electron/main/ai'
+import { practiceRewrite, extractJsonObjects, extractJsonObject, parseMarkedText } from '../electron/main/ai'
 
 describe('practiceRewrite workflow', () => {
   it('handles empty database gracefully', async () => {
@@ -532,5 +532,294 @@ describe('practiceRewrite workflow', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  describe('Scheme A: AI-driven Ground Truth Tagging', () => {
+    const candidates = [
+      { id: 101, front: 'call the shots', back: 'make decisions' },
+      { id: 102, front: 'double down on', back: 'commit more heavily' },
+      { id: 103, front: 'be tuned in to sth.', back: 'be sensitive to' },
+      { id: 104, front: 'sth.', back: 'something' }
+    ]
+
+    it('parseMarkedText accurately extracts single inline tag and produces clean text and segments', () => {
+      const raw = 'The leadership decided to <mark id="102">double down on</mark> their renewable policy.'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cleanText).toBe('The leadership decided to double down on their renewable policy.')
+      expect(res.cards).toHaveLength(1)
+      expect(res.cards[0].id).toBe(102)
+      expect(res.segments).toHaveLength(3)
+      expect(res.segments[0]).toEqual({ text: 'The leadership decided to ', card: null })
+      expect(res.segments[1]).toEqual({ text: 'double down on', card: candidates[1] })
+      expect(res.segments[2]).toEqual({ text: ' their renewable policy.', card: null })
+    })
+
+    it('parseMarkedText accurately handles inflected forms and detaches trailing punctuation', () => {
+      const raw = 'They have <mark id="102">doubled down on,</mark> and successfully executed the plan.'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cleanText).toBe('They have doubled down on, and successfully executed the plan.')
+      expect(res.cards).toHaveLength(1)
+      expect(res.cards[0].id).toBe(102)
+      // The mark segment text should NOT contain the trailing comma!
+      const markSeg = res.segments.find(s => s.card && s.card.id === 102)
+      expect(markSeg?.text).toBe('doubled down on')
+    })
+
+    it('parseMarkedText handles multiple tags and deduplicates matched cards in order', () => {
+      const raw = 'First, <mark id="101">call the shots</mark>. Later, <mark id="102">doubled down on</mark> the choices and <mark id="101">call the shots</mark> again.'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cleanText).toBe('First, call the shots. Later, doubled down on the choices and call the shots again.')
+      expect(res.cards).toHaveLength(2)
+      expect(res.cards[0].id).toBe(101)
+      expect(res.cards[1].id).toBe(102)
+    })
+
+    it('parseMarkedText handles diverse id attribute formats (quotes, unquoted, prefix)', () => {
+      const raw1 = 'Test <mark id=\'101\'>calling the shots</mark> single quote.'
+      const raw2 = 'Test <mark id=102>doubling down on</mark> unquoted.'
+      const raw3 = 'Test <mark id="[ID: 103]">tuned in to</mark> bracketed.'
+
+      expect(parseMarkedText(raw1, candidates).cards[0].id).toBe(101)
+      expect(parseMarkedText(raw2, candidates).cards[0].id).toBe(102)
+      expect(parseMarkedText(raw3, candidates).cards[0].id).toBe(103)
+    })
+
+    it('parseMarkedText returns empty segments and clean text when model omits tags', () => {
+      const raw = 'Plain text without any tags.'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cleanText).toBe('Plain text without any tags.')
+      expect(res.cards).toHaveLength(0)
+      expect(res.segments).toHaveLength(0)
+    })
+
+    it('Issue #13: practiceRewrite with Scheme A does NOT mark "double down on" when standalone "double" is used', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  rewritten_text: 'We enjoyed a double espresso while discussing business.',
+                  used_card_ids: []
+                })
+              }
+            }]
+          })
+        }
+      }) as any
+
+      try {
+        const mockDbHandlers = {
+          getCards: vi.fn().mockReturnValue([
+            { id: 501, front: 'double down on', back: 'commit heavily' }
+          ]),
+          getDueCards: vi.fn().mockReturnValue([])
+        }
+
+        const res = await practiceRewrite('We had two espressos.', { aiKey: 'test-key' }, mockDbHandlers)
+        expect(res.success).toBe(true)
+        // Card 501 ("double down on") MUST NOT be falsely marked!
+        expect(res.result.cards).toHaveLength(0)
+        expect(res.result.text).toBe('We enjoyed a double espresso while discussing business.')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it('Issue #13: practiceRewrite with Scheme A DOES mark "double down on" when AI tags inflected phrase', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  rewritten_text: 'The government decided to <mark id="501">double down on</mark> renewable subsidies.',
+                  used_card_ids: [501]
+                })
+              }
+            }]
+          })
+        }
+      }) as any
+
+      try {
+        const mockDbHandlers = {
+          getCards: vi.fn().mockReturnValue([
+            { id: 501, front: 'double down on', back: 'commit heavily' }
+          ]),
+          getDueCards: vi.fn().mockReturnValue([])
+        }
+
+        const res = await practiceRewrite('The government committed more to subsidies.', { aiKey: 'test-key' }, mockDbHandlers)
+        expect(res.success).toBe(true)
+        expect(res.result.cards).toHaveLength(1)
+        expect(res.result.cards[0].id).toBe(501)
+        expect(res.result.text).toBe('The government decided to double down on renewable subsidies.')
+        expect(res.result.segments).toBeDefined()
+        const markedSeg = res.result.segments.find((s: any) => s.card?.id === 501)
+        expect(markedSeg).toBeDefined()
+        expect(markedSeg.text).toBe('double down on')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it('Scheme A: practiceRewrite does NOT scan entire library, preventing unintended matches from large database', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  rewritten_text: 'They will double the production next quarter.',
+                  used_card_ids: []
+                })
+              }
+            }]
+          })
+        }
+      }) as any
+
+      try {
+        // Library has > 100 cards, including card 999 ("double") that was NOT in candidateCards
+        const allCards = Array.from({ length: 150 }, (_, i) => ({
+          id: i + 1,
+          front: `phrase_${i + 1}`,
+          back: `def_${i + 1}`
+        }))
+        // An unprompted library card that happens to match text
+        allCards.push({ id: 999, front: 'double', back: 'twice as much' })
+
+        const mockDbHandlers = {
+          getCards: vi.fn().mockReturnValue(allCards),
+          searchVectorCards: vi.fn().mockResolvedValue(allCards.slice(0, 25)),
+          getDueCards: vi.fn().mockReturnValue([])
+        }
+
+        const res = await practiceRewrite('They will increase production.', { aiKey: 'test-key' }, mockDbHandlers)
+        expect(res.success).toBe(true)
+        // Library card 999 ("double") was NOT in candidateCards, so it should NOT be matched!
+        expect(res.result.cards.some((c: any) => c.id === 999)).toBe(false)
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it('Scenario 1: does not hijack card front containing numbers when card ID with that number exists', () => {
+      const candidates = [
+        { id: 22, front: 'call the shots', back: 'make decisions' },
+        { id: 50, front: 'catch-22', back: 'dilemma' }
+      ]
+      const raw = 'It is a classic <mark id="catch-22">catch-22</mark> situation.'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cards).toHaveLength(1)
+      expect(res.cards[0].id).toBe(50)
+      expect(res.cards[0].front).toBe('catch-22')
+    })
+
+    it('Scenario 2: prioritizes longer multi-word match over short sub-word in fallback matching', () => {
+      const candidates = [
+        { id: 1, front: 'turn', back: 'rotate' },
+        { id: 2, front: 'turn a blind eye to', back: 'ignore' }
+      ]
+      const raw = 'The officials <mark id="turn a blind eye">turned a blind eye to</mark> the infractions.'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cards).toHaveLength(1)
+      expect(res.cards[0].id).toBe(2)
+      expect(res.cards[0].front).toBe('turn a blind eye to')
+    })
+
+    it('Scenario 3: practiceRewrite segments declared used_card_ids even if model omitted inline tag for one card', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = vi.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  rewritten_text: 'The committee will <mark id="101">call the shots</mark> and double down on their climate goals.',
+                  used_card_ids: [101, 102]
+                })
+              }
+            }]
+          })
+        }
+      }) as any
+
+      try {
+        const mockDbHandlers = {
+          getCards: vi.fn().mockReturnValue([
+            { id: 101, front: 'call the shots', back: 'make decisions' },
+            { id: 102, front: 'double down on', back: 'commit heavily' }
+          ]),
+          getDueCards: vi.fn().mockReturnValue([])
+        }
+
+        const res = await practiceRewrite('The committee will lead and commit more.', { aiKey: 'test-key' }, mockDbHandlers)
+        expect(res.success).toBe(true)
+        expect(res.result.cards).toHaveLength(2)
+        // Both card 101 AND card 102 must have corresponding segments in result.segments!
+        const segCards = res.result.segments.filter((s: any) => s.card).map((s: any) => s.card.id)
+        expect(segCards).toContain(101)
+        expect(segCards).toContain(102)
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it('Scenario 4: detaches sentence-ending period even if card front ends with sth. abbreviation', () => {
+      const candidates = [
+        { id: 103, front: 'be tuned in to sth.', back: 'sensitive to' }
+      ]
+      const raw = 'They were <mark id="103">tuned in to the latest frequency.</mark>'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cards).toHaveLength(1)
+      const markSeg = res.segments.find(s => s.card && s.card.id === 103)
+      expect(markSeg?.text).toBe('tuned in to the latest frequency')
+      const trailingSeg = res.segments[res.segments.length - 1]
+      expect(trailingSeg.text).toBe('.')
+      expect(trailingSeg.card).toBeNull()
+    })
+
+    it('Scenario 5: trims internal whitespace and handles quotes inside mark tag cleanly', () => {
+      const candidates = [
+        { id: 101, front: 'call the shots', back: 'make decisions' }
+      ]
+      const raw = 'The executives will <mark id="101"> "call the shots." </mark>'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cards).toHaveLength(1)
+      const markSeg = res.segments.find(s => s.card && s.card.id === 101)
+      expect(markSeg?.text).toBe('call the shots')
+      expect(res.cleanText).toBe('The executives will "call the shots."')
+    })
+
+    it('Scenario 6: strips internal HTML tags from mark segment text', () => {
+      const candidates = [
+        { id: 101, front: 'call the shots', back: 'make decisions' }
+      ]
+      const raw = 'The executives will <mark id="101">call <b>the shots</b></mark> today.'
+      const res = parseMarkedText(raw, candidates)
+
+      expect(res.cards).toHaveLength(1)
+      const markSeg = res.segments.find(s => s.card && s.card.id === 101)
+      expect(markSeg?.text).toBe('call the shots')
+      expect(res.cleanText).toBe('The executives will call the shots today.')
+    })
+  })
 })
+
 

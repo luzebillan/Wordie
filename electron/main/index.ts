@@ -383,9 +383,12 @@ ipcMain.handle('validate-sketch-engine', async (_, { url, apiKey }) => {
 
 ipcMain.handle('validate-ai-api', async (_, { url, apiKey, model }) => {
   try {
-    const targetUrl = (url || 'https://api.openai.com/v1').replace(/\/$/, '')
+    let targetUrl = (url || 'https://api.openai.com/v1').trim().replace(/\/+$/, '')
+    if (!targetUrl.endsWith('/chat/completions')) {
+      targetUrl += '/chat/completions'
+    }
     // A minimal test request assuming an OpenAI-compatible endpoint
-    const res = await fetch(`${targetUrl}/chat/completions`, {
+    const res = await fetch(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

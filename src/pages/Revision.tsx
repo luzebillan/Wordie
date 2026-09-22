@@ -371,7 +371,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
   }
 
   const handleShuffle = () => {
-    if (specificCardId || !currentCard) return
+    if (specificCardId || !currentCard || isEditingMode) return
     const res = applyShuffleToQueue(sessionQueue, currentIndex)
     if (res.shuffledCount <= 1) {
       window.dispatchEvent(new CustomEvent('show-toast', { 
@@ -383,6 +383,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     setIsShuffling(true)
     setTimeout(() => setIsShuffling(false), 500)
 
+    setShowAnswer(false)
     setSessionQueue(res.nextQueue)
 
     window.dispatchEvent(new CustomEvent('show-toast', { 
@@ -512,6 +513,11 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       } else if (isActionPressed('revision.undo', e) && !specificCardId && !isEditingMode && !clozeLoading) {
         e.preventDefault()
         handleUndo()
+      } else if (isActionPressed('revision.shuffle', e)) {
+        e.preventDefault()
+        if (!specificCardId && !isEditingMode && currentCard) {
+          handleShuffle()
+        }
       } else if (isActionPressed('revision.cancel', e) && isEditingMode) {
         e.preventDefault()
         setIsEditingMode(false)
@@ -734,7 +740,8 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
               className={`w-7 h-7 shrink-0 flex items-center justify-center text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 bg-white dark:bg-[#1f2028] hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-full shadow-sm border border-gray-100 dark:border-gray-800 hover:border-purple-200 dark:hover:border-purple-800/50 transition-colors ${
                 isShuffling ? 'text-purple-600 dark:text-purple-400 border-purple-300 dark:border-purple-600' : ''
               }`}
-              title="Shuffle Remaining Cards"
+              title={`Shuffle Remaining Cards (${getShortcutDisplay('revision.shuffle')})`}
+              aria-label={`Shuffle Remaining Cards (${getShortcutDisplay('revision.shuffle')})`}
             >
               <Shuffle className={`w-3.5 h-3.5 transition-transform duration-500 ${isShuffling ? 'rotate-180' : ''}`} />
             </button>
