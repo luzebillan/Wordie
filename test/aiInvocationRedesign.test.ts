@@ -3,6 +3,7 @@ import {
   callAiApi,
   aiGenerateGlossary,
   aiGenerateDailyWord,
+  parseDailyWordResponse,
   aiGenerateExpression,
   aiRewritePractice,
   practicePureListener,
@@ -221,9 +222,27 @@ describe('AI Invocation Architecture & Structured Generation Redesign', () => {
     }
   })
 
-  it('aiGenerateDailyWord uses callAiApi with temperature 0.2 and multimodal user content', async () => {
+  it('aiGenerateDailyWord uses callAiApi with temperature 0.35, response_format json_object, and returns structured result', async () => {
     const originalFetch = globalThis.fetch
     let capturedBody: any = null
+
+    const mockAiResponse = JSON.stringify({
+      primary: 'nuke',
+      candidates: [
+        {
+          term: 'nuke',
+          tag: 'Most Natural',
+          nuance: 'Informal slang for microwaving food.',
+          example: 'Just nuke it for two minutes.'
+        },
+        {
+          term: 'microwave',
+          tag: 'Standard',
+          nuance: 'Standard verb for heating something in a microwave oven.',
+          example: 'Microwave the lunch box before eating.'
+        }
+      ]
+    })
 
     globalThis.fetch = vi.fn().mockImplementation(async (_url, opts) => {
       capturedBody = JSON.parse(opts.body)
@@ -232,7 +251,7 @@ describe('AI Invocation Architecture & Structured Generation Redesign', () => {
         json: async () => ({
           choices: [{
             message: {
-              content: 'nuke'
+              content: mockAiResponse
             }
           }]
         })
@@ -249,14 +268,274 @@ describe('AI Invocation Architecture & Structured Generation Redesign', () => {
       )
 
       expect(res.success).toBe(true)
-      expect(res.result).toBe('nuke')
-      expect(capturedBody.temperature).toBe(0.2)
+      expect(res.result).toBeDefined()
+      expect(res.result!.primary).toBe('nuke')
+      expect(res.result!.candidates).toHaveLength(2)
+      expect(res.result!.candidates[0].term).toBe('nuke')
+      expect(res.result!.candidates[0].tag).toBe('Most Natural')
+      expect(res.result!.candidates[1].term).toBe('microwave')
+      expect(capturedBody.temperature).toBe(0.35)
+      expect(capturedBody.response_format).toEqual({ type: 'json_object' })
       expect(capturedBody.messages[0].role).toBe('system')
       expect(capturedBody.messages[1].role).toBe('user')
       expect(capturedBody.messages[1].content[0].text).toContain('叮一下')
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
+
+  it('aiGenerateDailyWord falls back to first non-empty line when response is plain text', async () => {
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: 'nuke'
+          }
+        }]
+      })
+    })) as any
+
+    try {
+      const res = await aiGenerateDailyWord(
+        {
+          front: '叮一下',
+          context: '去微波炉叮一个便当'
+        },
+        dummySettings
+      )
+
+      expect(res.success).toBe(true)
+      expect(res.result).toBeDefined()
+      expect(res.result!.primary).toBe('nuke')
+      expect(res.result!.candidates).toHaveLength(1)
+      expect(res.result!.candidates[0].term).toBe('nuke')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  describe('parseDailyWordResponse', () => {
+    it('parses valid structured JSON with primary and candidates', () => {
+      const raw = JSON.stringify({
+        primary: 'Extracurricular activities',
+        candidates: [
+          {
+            term: 'Extracurricular activities',
+            tag: 'Most Natural',
+            nuance: 'Standard and most widely accepted term.',
+            example: 'Students participate in extracurricular activities.'
+          },
+          {
+            term: 'After-school programs',
+            tag: 'Colloquial',
+            nuance: 'Focuses on clubs after normal school hours.',
+            example: 'The library hosts after-school programs.'
+          }
+        ]
+      })
+
+      const parsed = parseDailyWordResponse(raw)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('Extracurricular activities')
+      expect(parsed!.candidates).toHaveLength(2)
+      expect(parsed!.candidates[0].term).toBe('Extracurricular activities')
+      expect(parsed!.candidates[0].tag).toBe('Most Natural')
+      expect(parsed!.candidates[1].term).toBe('After-school programs')
+    })
+
+    it('filters out upstream proxy noise, greetings, and markdown fences', () => {
+      const rawWithNoise = `Welcome to Antigravity AI Gateway!
+Connected to proxy server.
+
+\`\`\`json
+{
+  "primary": "Well-rounded education",
+  "candidates": [
+    {
+      "term": "Well-rounded education",
+      "tag": "Most Natural",
+      "nuance": "Emphasizes holistic student growth.",
+      "example": "Promoting a well-rounded education for youth."
+    }
+  ]
+}
+\`\`\`
+Hope this helps! Have a wonderful day.`
+
+      const parsed = parseDailyWordResponse(rawWithNoise)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('Well-rounded education')
+      expect(parsed!.candidates[0].term).toBe('Well-rounded education')
+      expect(parsed!.candidates[0].tag).toBe('Most Natural')
+    })
+
+    it('falls back gracefully to first clean line filtering proxy greetings in plain text mode', () => {
+      const rawPlainText = `Welcome to Antigravity
+Hello! Here is your translation:
+Well-rounded education
+Another option is holistic education.`
+
+      const parsed = parseDailyWordResponse(rawPlainText)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('Well-rounded education')
+      expect(parsed!.candidates.length).toBeGreaterThanOrEqual(1)
+      expect(parsed!.candidates[0].term).toBe('Well-rounded education')
+    })
+
+    it('parses root JSON array [ { term, tag, nuance, example } ] correctly', () => {
+      const rawArray = JSON.stringify([
+        {
+          term: 'holistic education',
+          tag: 'Most Natural',
+          nuance: 'Focuses on all-round student development.',
+          example: 'The school promotes holistic education.'
+        },
+        {
+          term: 'well-rounded education',
+          tag: 'Standard',
+          nuance: 'Reflects balanced curriculum.',
+          example: 'Students need a well-rounded education.'
+        }
+      ])
+
+      const parsed = parseDailyWordResponse(rawArray)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('holistic education')
+      expect(parsed!.candidates).toHaveLength(2)
+      expect(parsed!.candidates[0].term).toBe('holistic education')
+      expect(parsed!.candidates[0].tag).toBe('Most Natural')
+      expect(parsed!.candidates[1].term).toBe('well-rounded education')
+      expect(parsed!.candidates[1].tag).toBe('Standard')
+    })
+
+    it('supports alternative keys such as options, choices, and counterparts', () => {
+      const rawWithOptions = JSON.stringify({
+        primary: 'well-rounded education',
+        options: [
+          {
+            counterpart: 'well-rounded education',
+            category: 'Top Recommendation',
+            explanation: 'General consensus choice.',
+            sentence: 'Strive for well-rounded education.'
+          },
+          {
+            expression: 'quality-oriented education',
+            category: 'Formal Policy',
+            reason: 'Official phrasing.',
+            sample: 'Implementing quality-oriented education.'
+          }
+        ]
+      })
+
+      const parsed = parseDailyWordResponse(rawWithOptions)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('well-rounded education')
+      expect(parsed!.candidates).toHaveLength(2)
+      expect(parsed!.candidates[0].term).toBe('well-rounded education')
+      expect(parsed!.candidates[0].tag).toBe('Top Recommendation')
+      expect(parsed!.candidates[0].nuance).toBe('General consensus choice.')
+      expect(parsed!.candidates[1].term).toBe('quality-oriented education')
+      expect(parsed!.candidates[1].tag).toBe('Formal Policy')
+      expect(parsed!.candidates[1].nuance).toBe('Official phrasing.')
+    })
+
+    it('cleans markdown bold, code backticks, list numbering, and trailing periods from terms', () => {
+      const raw = JSON.stringify({
+        primary: '1. **Well-rounded education.**',
+        candidates: [
+          {
+            term: '1. **Well-rounded education.**',
+            tag: 'Most Natural',
+            nuance: 'Nuance.',
+            example: 'Example.'
+          },
+          {
+            term: '`After-school activities.`',
+            tag: 'Colloquial',
+            nuance: 'Nuance.',
+            example: 'Example.'
+          }
+        ]
+      })
+
+      const parsed = parseDailyWordResponse(raw)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('Well-rounded education')
+      expect(parsed!.candidates[0].term).toBe('Well-rounded education')
+      expect(parsed!.candidates[1].term).toBe('After-school activities')
+    })
+
+    it('parses multiple candidates in plain text mode and preserves compound words with hyphens', () => {
+      const multilineText = `Welcome to Antigravity Proxy Server
+Tokens remaining: 89000
+Service status: Operational
+
+1. Extracurricular activities - Standard and most natural expression
+2. After-school programs - For activities held after school hours
+3. Quality education: Policy-oriented translation`
+
+      const parsed = parseDailyWordResponse(multilineText)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('Extracurricular activities')
+      expect(parsed!.candidates).toHaveLength(3)
+      expect(parsed!.candidates[0].term).toBe('Extracurricular activities')
+      expect(parsed!.candidates[0].nuance).toBe('Standard and most natural expression')
+      expect(parsed!.candidates[1].term).toBe('After-school programs')
+      expect(parsed!.candidates[1].nuance).toBe('For activities held after school hours')
+      expect(parsed!.candidates[2].term).toBe('Quality education')
+      expect(parsed!.candidates[2].nuance).toBe('Policy-oriented translation')
+    })
+
+    it('rescues broken JSON lines where parser failed', () => {
+      const brokenJsonText = `{"primary": "nuke
+"candidates": [
+"term": "nuke",
+"term": "microwave",`
+
+      const parsed = parseDailyWordResponse(brokenJsonText)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('nuke')
+      expect(parsed!.candidates[0].term).toBe('nuke')
+    })
+
+    it('falls back to candidate[0].term when primary is missing', () => {
+      const raw = JSON.stringify({
+        candidates: [
+          {
+            term: 'Quality education',
+            tag: 'Formal',
+            nuance: 'Used in policy papers.',
+            example: 'Advancing quality education.'
+          }
+        ]
+      })
+
+      const parsed = parseDailyWordResponse(raw)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('Quality education')
+      expect(parsed!.candidates[0].term).toBe('Quality education')
+    })
+
+    it('creates a candidate from primary when candidates array is empty', () => {
+      const raw = JSON.stringify({
+        primary: 'Holistic education'
+      })
+
+      const parsed = parseDailyWordResponse(raw)
+      expect(parsed).not.toBeNull()
+      expect(parsed!.primary).toBe('Holistic education')
+      expect(parsed!.candidates).toHaveLength(1)
+      expect(parsed!.candidates[0].term).toBe('Holistic education')
+      expect(parsed!.candidates[0].tag).toBe('Recommendation')
+    })
+
+    it('returns null for empty or whitespace-only inputs', () => {
+      expect(parseDailyWordResponse('')).toBeNull()
+      expect(parseDailyWordResponse('   \n  ')).toBeNull()
+    })
   })
 
   it('aiGenerateExpression uses callAiApi with temperature 0.2 and role separation', async () => {

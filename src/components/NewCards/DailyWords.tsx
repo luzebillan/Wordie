@@ -17,6 +17,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
   const [imageUrl, setImageUrl] = useState('')
   const [isCaching, setIsCaching] = useState(false)
   const [back, setBack] = useState('')
+  const [candidates, setCandidates] = useState<DailyWordCandidate[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
 
@@ -37,6 +38,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       return
     }
     setError('')
+    setCandidates([])
     setIsGenerating(true)
     
     try {
@@ -47,9 +49,18 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       }
       const res = await window.ipcRenderer.generateDailyWord(payload)
       if (res.success && res.result) {
-        setBack(res.result)
-        if (!front.trim()) {
-          setSearchQuery(res.result)
+        if (typeof res.result === 'string') {
+          setBack(res.result)
+          setCandidates([])
+          if (!front.trim()) {
+            setSearchQuery(res.result)
+          }
+        } else {
+          setBack(res.result.primary)
+          setCandidates(res.result.candidates || [])
+          if (!front.trim()) {
+            setSearchQuery(res.result.primary)
+          }
         }
       } else {
         setError(res.error || 'Failed to generate explanation.')
@@ -62,11 +73,13 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
   }
 
   const handleSave = async () => {
-    if (!front && !imageUrl) {
+    const trimmedFront = front.trim()
+    const trimmedBack = back.trim()
+    if (!trimmedFront && !imageUrl.trim()) {
       setError('Either a Word or an Image is required.')
       return
     }
-    if (!back) {
+    if (!trimmedBack) {
       setError('Translation is required.')
       return
     }
@@ -80,10 +93,10 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
     try {
       await window.ipcRenderer.createCard({
         type: 'Daily Words',
-        front: front || '[Image Only]',
-        back,
+        front: trimmedFront || '[Image Only]',
+        back: trimmedBack,
         sourceContext: '',
-        imageUrl,
+        imageUrl: imageUrl.trim(),
         label: ''
       })
       
@@ -91,6 +104,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
       setContext('')
       setImageUrl('')
       setBack('')
+      setCandidates([])
       setError('')
       reset()
 
@@ -146,6 +160,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
     setContext('')
     setImageUrl('')
     setBack('')
+    setCandidates([])
     setError('')
     reset()
   }
@@ -169,7 +184,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [front, context, imageUrl, back, isGenerating, isCaching, isActionPressed])
+  }, [front, context, imageUrl, back, isGenerating, isCaching, isActionPressed, candidates])
 
   return (
     <div ref={containerRef} className="flex h-full animate-in fade-in duration-500">
@@ -251,8 +266,9 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
         <div className="mb-6 relative">
           <div className="flex items-center gap-4 mb-2">
             <button
+              type="button"
               onClick={handleGenerate}
-              disabled={isGenerating || (!front && !imageUrl)}
+              disabled={isGenerating || (!front.trim() && !imageUrl.trim())}
               className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400 monochrome:bg-gray-800 monochrome:hover:bg-black dark:monochrome:bg-gray-100 dark:monochrome:hover:bg-white text-white dark:monochrome:text-gray-900 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
@@ -263,6 +279,74 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
             </button>
             {error && <span className="text-red-500 text-sm">{error}</span>}
           </div>
+
+          {/* Candidate Selector Cards */}
+          {candidates.length > 0 && (
+            <div className="mb-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Recommended Counterparts ({candidates.length})
+                </label>
+                <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                  Click any option to apply
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-2.5">
+                {candidates.map((candidate, idx) => {
+                  const isSelected = back.trim().toLowerCase() === candidate.term.trim().toLowerCase()
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setBack(candidate.term)
+                        if (!front.trim()) {
+                          setSearchQuery(candidate.term)
+                        }
+                      }}
+                      className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-purple-50/80 dark:bg-purple-950/40 border-purple-400 dark:border-purple-600 ring-2 ring-purple-400/30 dark:ring-purple-500/30 monochrome:bg-gray-100 monochrome:border-gray-900 monochrome:ring-gray-400/30 dark:monochrome:bg-gray-800 dark:monochrome:border-gray-200 shadow-sm'
+                          : 'bg-white dark:bg-[#1f2028] border-gray-200 dark:border-gray-800 hover:border-purple-300 dark:hover:border-purple-700/60 hover:bg-gray-50/50 dark:hover:bg-[#252733] monochrome:hover:border-gray-500'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 monochrome:bg-gray-200 monochrome:text-black dark:monochrome:bg-gray-800 dark:monochrome:text-white">
+                            {idx + 1}. {candidate.tag || 'Option'}
+                          </span>
+                          <span className="font-bold text-gray-900 dark:text-white text-base">
+                            {candidate.term}
+                          </span>
+                        </div>
+                        {isSelected ? (
+                          <span className="text-xs font-bold text-purple-600 dark:text-purple-400 shrink-0 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 rounded-md monochrome:bg-gray-200 monochrome:text-black dark:monochrome:bg-gray-800 dark:monochrome:text-white">
+                            Selected
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">
+                            Select
+                          </span>
+                        )}
+                      </div>
+                      {candidate.nuance && (
+                        <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                          <span className="font-semibold text-gray-700 dark:text-gray-300">Nuance: </span>
+                          {candidate.nuance}
+                        </p>
+                      )}
+                      {candidate.example && (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 italic">
+                          <span className="font-medium not-italic text-gray-400 dark:text-gray-500">e.g. </span>
+                          {candidate.example}
+                        </p>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           
           <textarea
             value={back}
@@ -274,8 +358,8 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
               }
             }}
             disabled={isGenerating}
-            className={`w-full h-48 p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
-            placeholder="Find English Counterparts (or type your own version)"
+            className={`w-full ${candidates.length > 0 ? 'h-32' : 'h-48'} p-4 bg-white dark:bg-[#1f2028] border border-gray-200 dark:border-gray-800 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none transition-shadow text-gray-800 dark:text-gray-200 shadow-sm ${isGenerating ? 'opacity-50' : ''}`}
+            placeholder="Selected English Counterpart (or type your own version)"
           />
         </div>
 
@@ -292,7 +376,7 @@ export const DailyWords: React.FC<DailyWordsProps> = ({ onNavigate, onUpdateStat
           <button
             type="button"
             onClick={handleClear}
-            disabled={isGenerating || isCaching || (!front && !context && !imageUrl && !back)}
+            disabled={isGenerating || isCaching || (!front && !context && !imageUrl && !back && candidates.length === 0)}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
             title={`Clear form (${getShortcutDisplay('card.clear')})`}
           >

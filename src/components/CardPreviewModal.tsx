@@ -3,7 +3,8 @@ import { CardEditForm } from './CardEditForm'
 import { TaxonomyTagBadge } from './TaxonomyTagBadge'
 import { useShortcuts } from '../hooks/useShortcuts'
 import { Modal, ModalHeader, ModalBody } from './ui/Modal'
-import { Edit2, Trash2, Check, X, Sparkles, Volume2 } from 'lucide-react'
+import { Edit2, Trash2, Check, X, Sparkles, Volume2, Loader2, AlertCircle } from 'lucide-react'
+import { extractCleanErrorMessage } from '../utils/errorMessage'
 
 interface CardPreviewModalProps {
   cardId: number | null
@@ -24,6 +25,8 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
   const [isEditingMode, setIsEditingMode] = useState(initialEditMode)
   const [synonyms, setSynonyms] = useState<any[]>([])
   const [isSearchingSynonyms, setIsSearchingSynonyms] = useState(false)
+  const [hasSearchedSynonyms, setHasSearchedSynonyms] = useState(false)
+  const [synonymsError, setSynonymsError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   useEffect(() => {
@@ -35,10 +38,16 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
         setIsEditingMode(initialEditMode)
         setSynonyms([])
         setIsSearchingSynonyms(false)
+        setHasSearchedSynonyms(false)
+        setSynonymsError(null)
         setShowDeleteConfirm(false)
       })
     } else {
       setCard(null)
+      setSynonyms([])
+      setIsSearchingSynonyms(false)
+      setHasSearchedSynonyms(false)
+      setSynonymsError(null)
     }
   }, [cardId, initialEditMode])
 
@@ -73,12 +82,25 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
   const handleFindSynonyms = async () => {
     if (!card) return
     setIsSearchingSynonyms(true)
+    setSynonymsError(null)
     try {
       const results = await window.ipcRenderer.findSimilarCards(card.front, card.back, card.type, true, card.sourceContext || '')
-      const filtered = results.filter((r: any) => r.id !== card.id).slice(0, 5)
+      const filtered = (results || []).filter((r: any) => r.id !== card.id).slice(0, 5)
       setSynonyms(filtered)
-    } catch (e) {
-      console.error(e)
+      setHasSearchedSynonyms(true)
+    } catch (e: any) {
+      console.error('[CardPreviewModal] handleFindSynonyms error:', e)
+      const cleanMsg = extractCleanErrorMessage(e)
+      setSynonymsError(cleanMsg)
+      setHasSearchedSynonyms(true)
+      window.dispatchEvent(
+        new CustomEvent('show-toast', {
+          detail: {
+            message: `Synonym search failed: ${cleanMsg}`,
+            type: 'error'
+          }
+        })
+      )
     } finally {
       setIsSearchingSynonyms(false)
     }
@@ -386,18 +408,33 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
 
               {/* Similar / Synonyms Section */}
               <div className="pt-2">
-                {synonyms.length > 0 ? (
+                {isSearchingSynonyms ? (
+                  <div className="flex items-center gap-2 text-xs text-purple-600 dark:text-purple-400 py-1 font-medium animate-pulse">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Searching similar cards...</span>
+                  </div>
+                ) : synonyms.length > 0 ? (
                   <div className="p-3 bg-yellow-50/50 dark:bg-yellow-950/20 border border-yellow-200/60 dark:border-yellow-800/40 rounded-xl">
-                    <div className="text-[11px] font-bold text-yellow-800 dark:text-yellow-300 mb-2 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Similar / Synonyms Cards:</span>
+                    <div className="text-[11px] font-bold text-yellow-800 dark:text-yellow-300 mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Similar / Synonyms Cards ({synonyms.length}):</span>
+                      </div>
+                      <button
+                        onClick={handleFindSynonyms}
+                        disabled={isSearchingSynonyms}
+                        className="text-[11px] text-yellow-700 dark:text-yellow-400 hover:underline font-normal cursor-pointer"
+                        title="Search again"
+                      >
+                        Refresh
+                      </button>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {synonyms.map(syn => (
                         <button
                           key={syn.id}
                           onClick={() => window.dispatchEvent(new CustomEvent('preview-card', { detail: syn.id }))}
-                          className="px-2.5 py-1 bg-white dark:bg-[#1f2028] text-gray-800 dark:text-gray-200 rounded-lg text-xs font-semibold border border-yellow-200 dark:border-yellow-800 hover:border-purple-400 transition-all shadow-xs"
+                          className="px-2.5 py-1 bg-white dark:bg-[#1f2028] text-gray-800 dark:text-gray-200 rounded-lg text-xs font-semibold border border-yellow-200 dark:border-yellow-800 hover:border-purple-400 transition-all shadow-xs text-left cursor-pointer"
                           title={syn.back}
                         >
                           {syn.front}
@@ -405,14 +442,44 @@ export const CardPreviewModal: React.FC<CardPreviewModalProps> = ({
                       ))}
                     </div>
                   </div>
+                ) : synonymsError ? (
+                  <div className="p-3 bg-red-50/70 dark:bg-red-950/30 border border-red-200/70 dark:border-red-800/50 rounded-xl">
+                    <div className="flex items-center justify-between text-xs text-red-700 dark:text-red-300 mb-1 font-semibold">
+                      <div className="flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-500" />
+                        <span>Failed to Find Synonyms</span>
+                      </div>
+                      <button
+                        onClick={handleFindSynonyms}
+                        className="text-xs text-red-600 dark:text-red-400 hover:underline font-medium cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-red-600/90 dark:text-red-400/90 pl-5">
+                      {synonymsError}
+                    </p>
+                  </div>
+                ) : hasSearchedSynonyms ? (
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 bg-gray-50/80 dark:bg-gray-800/30 px-3 py-2 rounded-xl border border-gray-200/60 dark:border-gray-800/60">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-gray-400" />
+                      <span>No similar or synonym cards found</span>
+                    </div>
+                    <button
+                      onClick={handleFindSynonyms}
+                      className="text-purple-600 hover:text-purple-700 dark:text-purple-400 hover:underline font-semibold text-xs transition-colors cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
                 ) : (
                   <button
                     onClick={handleFindSynonyms}
-                    disabled={isSearchingSynonyms}
-                    className="flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 font-medium transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 font-medium transition-colors cursor-pointer"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>{isSearchingSynonyms ? 'Searching similar cards...' : 'Explore Synonyms / Related Cards'}</span>
+                    <span>Explore Synonyms / Related Cards</span>
                   </button>
                 )}
               </div>

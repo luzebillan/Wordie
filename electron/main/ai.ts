@@ -679,13 +679,233 @@ JSON Schema:
   }
 }
 
+export interface DailyWordCandidate {
+  term: string
+  tag: string
+  nuance: string
+  example: string
+}
+
+export interface DailyWordResult {
+  primary: string
+  candidates: DailyWordCandidate[]
+}
+
+function cleanDailyWordTerm(raw: string): string {
+  if (!raw) return ''
+  let t = raw.trim()
+  // Strip trailing commas from JSON remnants e.g. "nuke",
+  t = t.replace(/,\s*$/, '').trim()
+  t = cleanAiExpression(t).trim()
+  t = t.replace(/^[*_`~]+|[*_`~]+$/g, '').trim()
+  t = stripWrappingQuotes(t)
+  t = t.replace(/,\s*$/, '').trim()
+  if (t.endsWith('.') && !/\b(?:etc|e\.g|i\.e)\.$/i.test(t)) {
+    t = t.slice(0, -1).trim()
+  }
+  return t
+}
+
+function parseCandidateItem(c: any): DailyWordCandidate | null {
+  if (!c) return null
+  if (typeof c === 'string') {
+    const term = cleanDailyWordTerm(c)
+    return term ? { term, tag: 'Option', nuance: '', example: '' } : null
+  }
+  if (typeof c === 'object') {
+    const rawTerm = String(
+      c.term || c.expression || c.counterpart || c.word || c.english || c.phrase || c.translation || c.title || c.text || ''
+    )
+    const term = cleanDailyWordTerm(rawTerm)
+    if (!term) return null
+
+    const tag = String(c.tag || c.category || c.style || c.type || 'Option').trim()
+    const nuance = String(c.nuance || c.explanation || c.reason || c.description || c.meaning || '').trim()
+    const example = String(c.example || c.sample || c.sentence || '').trim()
+
+    return { term, tag, nuance, example }
+  }
+  return null
+}
+
+export function parseDailyWordResponse(rawText: string): DailyWordResult | null {
+  if (!rawText || !rawText.trim()) return null
+
+  let cleaned = rawText.trim()
+
+  // 1. Strip markdown code fence if present
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim()
+  }
+
+  // 2. Extract outermost JSON structure: object { ... } or array [ ... ]
+  // This automatically strips any leading proxy greetings (e.g. "Welcome to Antigravity\n\n{...}")
+  // and trailing commentary
+  const firstBrace = cleaned.indexOf('{')
+  const lastBrace = cleaned.lastIndexOf('}')
+  const firstBracket = cleaned.indexOf('[')
+  const lastBracket = cleaned.lastIndexOf(']')
+
+  let jsonSubstring = ''
+
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket &&
+      (firstBrace === -1 || firstBracket < firstBrace)) {
+    // Outermost structure is an array [...]
+    jsonSubstring = cleaned.substring(firstBracket, lastBracket + 1)
+  } else if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    // Outermost structure is an object {...}
+    jsonSubstring = cleaned.substring(firstBrace, lastBrace + 1)
+  }
+
+  let data: any = null
+
+  if (jsonSubstring) {
+    // 3. Try standard JSON.parse
+    try {
+      data = JSON.parse(jsonSubstring)
+    } catch {}
+
+    // 4. Try escaping unescaped newlines/control characters
+    if (!data) {
+      try {
+        const escaped = escapeUnescapedControlCharsInJson(jsonSubstring)
+        data = JSON.parse(escaped)
+      } catch {}
+    }
+
+    // 5. Try lenient sanitization
+    if (!data) {
+      try {
+        const sanitized = sanitizeLenientJson(escapeUnescapedControlCharsInJson(jsonSubstring))
+        data = JSON.parse(sanitized)
+      } catch {}
+    }
+  }
+
+  // 6. Process parsed JSON (either object or array)
+  if (data && typeof data === 'object') {
+    let primary = ''
+    const candidates: DailyWordCandidate[] = []
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        const cand = parseCandidateItem(item)
+        if (cand) candidates.push(cand)
+      }
+      if (candidates.length > 0) {
+        primary = candidates[0].term
+      }
+    } else {
+      const rawPrimary = typeof data.primary === 'string' ? data.primary : ''
+      primary = cleanDailyWordTerm(rawPrimary)
+
+      const rawCandidates = Array.isArray(data.candidates)
+        ? data.candidates
+        : Array.isArray(data.options)
+        ? data.options
+        : Array.isArray(data.choices)
+        ? data.choices
+        : Array.isArray(data.alternatives)
+        ? data.alternatives
+        : Array.isArray(data.items)
+        ? data.items
+        : Array.isArray(data.results)
+        ? data.results
+        : Array.isArray(data.counterparts)
+        ? data.counterparts
+        : []
+
+      for (const item of rawCandidates) {
+        const cand = parseCandidateItem(item)
+        if (cand) candidates.push(cand)
+      }
+
+      // If primary was empty, take the first candidate's term
+      if (!primary && candidates.length > 0) {
+        primary = candidates[0].term
+      }
+
+      // If primary exists but candidates array was empty, generate 1 candidate from primary
+      if (primary && candidates.length === 0) {
+        candidates.push({
+          term: primary,
+          tag: 'Recommendation',
+          nuance: '',
+          example: ''
+        })
+      }
+    }
+
+    if (primary) {
+      return { primary, candidates }
+    }
+  }
+
+  // 7. Fallback Protection: if JSON parsing completely failed or no structured fields found,
+  // extract viable candidates from lines, filtering proxy noise/greetings.
+  const lines = rawText.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean)
+  const fallbackCandidates: DailyWordCandidate[] = []
+
+  const isNoiseOrGreeting = (line: string): boolean => {
+    return (
+      /^(welcome to|antigravity|hello|hi|hey|greetings|here is|here are|below is|below are|sure|certainly|```|\{|\}|\[|\])/i.test(line) ||
+      /\b(antigravity|gateway|proxy server|tokens remaining|token quota|status: operational)\b/i.test(line) ||
+      (/:$/.test(line) && /(?:here|below|following|translation|counterpart|word|option)/i.test(line))
+    )
+  }
+
+  for (const line of lines) {
+    if (isNoiseOrGreeting(line)) continue
+
+    let rawTerm = line.replace(/^(?:\d+[\.\)]|[-*•])\s+/, '').trim()
+    let rawNuance = ''
+
+    const separatorMatch = rawTerm.match(/^(.+?)(?:\s+[-—–]\s+|:\s+)(.+)$/)
+    if (separatorMatch) {
+      const part1 = separatorMatch[1].trim()
+      const part2 = separatorMatch[2].trim()
+
+      if (/^["']?(?:term|expression|word|counterpart)["']?$/i.test(cleanDailyWordTerm(part1))) {
+        rawTerm = part2
+        rawNuance = ''
+      } else {
+        rawTerm = part1
+        rawNuance = part2
+      }
+    }
+
+    const cleanT = cleanDailyWordTerm(rawTerm)
+    if (cleanT && !/^(term|nuance|tag|example|primary|candidates|options|choices)$/i.test(cleanT)) {
+      fallbackCandidates.push({
+        term: cleanT,
+        tag: fallbackCandidates.length === 0 ? 'Recommendation' : 'Option',
+        nuance: rawNuance,
+        example: ''
+      })
+    }
+  }
+
+  if (fallbackCandidates.length > 0) {
+    return {
+      primary: fallbackCandidates[0].term,
+      candidates: fallbackCandidates
+    }
+  }
+
+  return null
+}
+
 export async function aiGenerateDailyWord(
   payload: { picture?: string; context?: string; front?: string },
   settings: Record<string, string>
-): Promise<{ success: boolean; result?: string; error?: string }> {
+): Promise<{ success: boolean; result?: DailyWordResult; error?: string }> {
   const { picture, context, front: chineseWord } = payload
 
-  const systemPrompt = settings['promptDailyWord'] || DEFAULT_PROMPT_DAILY_WORD
+  let systemPrompt = settings['promptDailyWord'] || DEFAULT_PROMPT_DAILY_WORD
+  if (systemPrompt && systemPrompt.includes('Output ONLY the concise English counterpart directly on a single line')) {
+    systemPrompt = DEFAULT_PROMPT_DAILY_WORD
+  }
 
   let userPrompt = ''
   let imageBase64 = ''
@@ -745,14 +965,22 @@ export async function aiGenerateDailyWord(
     {
       system: systemPrompt,
       user: content,
-      temperature: 0.2
+      temperature: 0.35,
+      responseFormat: { type: 'json_object' }
     },
     settings
   )
 
-  if (!res.success || !res.result) return res
+  if (!res.success || !res.result) {
+    return { success: false, error: res.error || 'Failed to get AI response' }
+  }
 
-  return { success: true, result: cleanAiExpression(res.result) }
+  const parsed = parseDailyWordResponse(res.result)
+  if (!parsed || !parsed.primary) {
+    return { success: false, error: 'Failed to parse AI response: ' + res.result }
+  }
+
+  return { success: true, result: parsed }
 }
 
 export async function aiRewritePractice(text: string, targetWords: string[], settings: any) {

@@ -141,7 +141,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (settings.easyThreshold) setEasyThreshold(settings.easyThreshold)
         if (settings.goodThreshold) setGoodThreshold(settings.goodThreshold)
         setPromptGlossary(settings.promptGlossary || Prompts.DEFAULT_PROMPT_GLOSSARY)
-        setPromptDailyWord(settings.promptDailyWord || Prompts.DEFAULT_PROMPT_DAILY_WORD)
+        const legacyDailyPrompt = settings.promptDailyWord && settings.promptDailyWord.includes('Output ONLY the concise English counterpart directly on a single line')
+        setPromptDailyWord(legacyDailyPrompt ? Prompts.DEFAULT_PROMPT_DAILY_WORD : (settings.promptDailyWord || Prompts.DEFAULT_PROMPT_DAILY_WORD))
+        if (legacyDailyPrompt) {
+          autoSave('promptDailyWord', '')
+        }
         setPromptRewrite(settings.promptRewrite || Prompts.DEFAULT_PROMPT_REWRITE)
         setPromptExpression(settings.promptExpression || Prompts.DEFAULT_PROMPT_EXPRESSION)
         setPromptRevisionCloze(settings.promptRevisionCloze || Prompts.DEFAULT_PROMPT_REVISION_CLOZE)

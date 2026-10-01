@@ -1,3 +1,15 @@
+interface DailyWordCandidate {
+  term: string
+  tag: string
+  nuance: string
+  example: string
+}
+
+interface DailyWordResult {
+  primary: string
+  candidates: DailyWordCandidate[]
+}
+
 interface Window {
   ipcRenderer: import('electron').IpcRenderer & {
     createCard: (card: any) => Promise<any>
@@ -41,7 +53,7 @@ interface Window {
     // AI APIs
     generateExpression: (context: string, style: string, front: string) => Promise<{success: boolean; result?: string; error?: string}>
     generateGlossary: (labels: string[], term: string) => Promise<{success: boolean; result?: string; error?: string}>
-    generateDailyWord: (payload: { picture?: string; context?: string; front?: string }) => Promise<{success: boolean; result?: string; error?: string}>
+    generateDailyWord: (payload: { picture?: string; context?: string; front?: string }) => Promise<{success: boolean; result?: DailyWordResult; error?: string}>
     generateReadyVersion: (front: string) => Promise<{success: boolean; result?: string; error?: string}>
     generateRevisionCloze: (payload: { front: string; back: string }) => Promise<{ success: boolean; result?: string; error?: string }>
     aiRewritePractice: (text: string, targetWords: string[]) => Promise<{success: boolean; result?: string; error?: string}>

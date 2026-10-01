@@ -264,22 +264,29 @@ export const searchService = {
     // Stage 2: LLM Strict Filtering (for Synonyms)
     if (useLLM) {
       const settings = settingsRepo.getSettings();
-      if (!settings['aiKey'] || candidates.length === 0) {
+      const apiKey = (settings['aiKey'] || '').trim();
+      if (!apiKey) {
+        throw new Error('AI API Key is not configured in Settings.');
+      }
+      if (candidates.length === 0) {
         return [];
       }
 
       console.log(`[Semantic Analysis] Sending ${candidates.length} candidates to LLM for strict synonym filtering...`);
       const aiRes = await aiFilterSynonyms(front, back, candidates, settings, context);
       
-      if (aiRes.success && aiRes.result) {
+      if (!aiRes.success) {
+        console.error(`[Semantic Analysis] LLM filter failed: ${aiRes.error}`);
+        throw new Error(aiRes.error || 'AI failed to analyze synonyms.');
+      }
+
+      if (aiRes.result) {
         const matchedIds = new Set(aiRes.result.map(id => parseInt(id, 10)));
         const semanticResults = candidates.filter(c => matchedIds.has(c.id));
         console.log(`[Semantic Analysis] LLM returned ${semanticResults.length} strict synonyms.`);
         return semanticResults.slice(0, 10);
-      } else {
-        console.warn(`[Semantic Analysis] LLM filter failed or returned no match: ${aiRes.error}`);
-        return [];
       }
+      return [];
     }
 
     return candidates.slice(0, options?.limit !== undefined ? options.limit : 10);

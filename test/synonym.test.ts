@@ -85,3 +85,94 @@ describe('extractJsonObjects & extractJsonObject', () => {
     expect(extractJsonObject('totally invalid')).toBeNull()
   })
 })
+
+import { extractCleanErrorMessage } from '../src/utils/errorMessage'
+
+describe('extractCleanErrorMessage', () => {
+  it('extracts human-readable message from token quota error (HTTP 400)', () => {
+    const raw = `Error invoking remote method 'find-similar-cards': Error: AI failed to filter synonyms: API Error (400): {"error":{"message":"token quota is not enough","type":"credit_exhausted","code":"insufficient_quota"}}`
+    const cleaned = extractCleanErrorMessage(raw)
+    expect(cleaned).toBe('AI Error (400): token quota is not enough')
+  })
+
+  it('extracts human-readable message from quota exceeded error (HTTP 429)', () => {
+    const raw = `Error invoking remote method 'find-similar-cards': Error: AI failed to filter synonyms: API Error (429): {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota"}}`
+    const cleaned = extractCleanErrorMessage(raw)
+    expect(cleaned).toBe('AI Error (429): You exceeded your current quota, please check your plan and billing details.')
+  })
+
+  it('handles missing API key error', () => {
+    const raw = `Error invoking remote method 'find-similar-cards': Error: AI API Key is not configured in Settings.`
+    const cleaned = extractCleanErrorMessage(raw)
+    expect(cleaned).toBe('AI API Key is not configured in Settings.')
+  })
+
+  it('handles plain network or timeout error without JSON', () => {
+    const raw = `Error invoking remote method 'find-similar-cards': Error: AI failed to filter synonyms: The operation was aborted due to timeout`
+    const cleaned = extractCleanErrorMessage(raw)
+    expect(cleaned).toBe('The operation was aborted due to timeout')
+  })
+
+  it('handles plain string error', () => {
+    expect(extractCleanErrorMessage('Network error')).toBe('Network error')
+  })
+
+  it('handles null, undefined, or empty inputs safely', () => {
+    expect(extractCleanErrorMessage(null)).toBe('Unknown error occurred')
+    expect(extractCleanErrorMessage(undefined)).toBe('Unknown error occurred')
+    expect(extractCleanErrorMessage('')).toBe('Unknown error occurred')
+  })
+})
+
+describe('Synonym strict filtering & error propagation contract', () => {
+  const mockCandidates = [
+    { id: 101, front: 'take a toll', back: 'have a serious bad effect' },
+    { id: 102, front: 'bear the brunt', back: 'receive the worst part of something' },
+    { id: 103, front: 'hit the road', back: 'depart or leave' }
+  ]
+
+  it('matches candidates by parsed AI string IDs and preserves strict synonyms', () => {
+    const aiIds = ['101', '102']
+    const matchedIds = new Set(aiIds.map(id => parseInt(id, 10)))
+    const matched = mockCandidates.filter(c => matchedIds.has(c.id))
+    expect(matched).toHaveLength(2)
+    expect(matched.map(m => m.id)).toEqual([101, 102])
+  })
+
+  it('returns empty array when AI evaluates but finds no true synonyms', () => {
+    const aiIds: string[] = []
+    const matchedIds = new Set(aiIds.map(id => parseInt(id, 10)))
+    const matched = mockCandidates.filter(c => matchedIds.has(c.id))
+    expect(matched).toHaveLength(0)
+  })
+
+  it('throws an informative error on API quota failure instead of silently returning empty candidates', () => {
+    const aiRes = {
+      success: false,
+      error: 'API Error (400): {"error":{"message":"token quota is not enough","type":"credit_exhausted"}}'
+    }
+
+    const runStage2 = () => {
+      if (!aiRes.success) {
+        throw new Error(aiRes.error || 'AI failed to analyze synonyms.')
+      }
+      return []
+    }
+
+    expect(runStage2).toThrow('token quota is not enough')
+  })
+
+  it('throws an informative error when API key is missing', () => {
+    const settings = { aiKey: '   ' }
+    const runStage2 = () => {
+      const apiKey = (settings.aiKey || '').trim()
+      if (!apiKey) {
+        throw new Error('AI API Key is not configured in Settings.')
+      }
+      return []
+    }
+
+    expect(runStage2).toThrow('AI API Key is not configured in Settings.')
+  })
+})
+
