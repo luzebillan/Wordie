@@ -45,7 +45,7 @@
     "vite": "^8.0.16",
     "vite-plugin-electron": "^1.0.1",
     "vite-plugin-electron-renderer": "^1.0.0",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   },
   "allowScripts": {
     "better-sqlite3": "true",
