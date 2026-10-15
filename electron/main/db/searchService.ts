@@ -1,5 +1,5 @@
 import { db } from './connection'
-import { searchCardVectors } from '../vector_db'
+import { searchCardVectors, searchCardVectorsByBatch } from '../vector_db'
 import { aiFilterSynonyms } from '../ai'
 import { settingsRepo } from './settingsRepo'
 import { projectCJK } from './init'
@@ -202,6 +202,32 @@ export const searchService = {
       return ordered.slice(0, limit);
     } catch (e) {
       console.error("[searchVectorCards] Failed:", e);
+      return [];
+    }
+  },
+
+  searchVectorCardsByVectors: async (vectors: number[][], limit: number = 25) => {
+    try {
+      const lanceResults = await searchCardVectorsByBatch(vectors, 'Ready Versions', limit);
+      if (!lanceResults || lanceResults.length === 0) return [];
+
+      const candidateIds = lanceResults.map(r => r.id).filter(id => typeof id === 'number');
+      if (candidateIds.length === 0) return [];
+
+      const placeholders = candidateIds.map(() => '?').join(',');
+      const matchedCards = db.prepare(`SELECT * FROM cards WHERE id IN (${placeholders}) AND type != 'Ready Versions'`).all(...candidateIds) as any[];
+      const cardsMap = new Map(matchedCards.map(c => [c.id, c]));
+
+      const ordered: any[] = [];
+      for (const r of lanceResults) {
+        const card = cardsMap.get(r.id);
+        if (card && !ordered.some(c => c.id === card.id)) {
+          ordered.push(card);
+        }
+      }
+      return ordered.slice(0, limit);
+    } catch (e) {
+      console.error("[searchVectorCardsByVectors] Failed:", e);
       return [];
     }
   },

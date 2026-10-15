@@ -1,5 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
-import { practiceRewrite, extractJsonObjects, extractJsonObject, parseMarkedText } from '../electron/main/ai'
+import {
+  practiceRewrite,
+  extractJsonObjects,
+  extractJsonObject,
+  parseMarkedText,
+  extractClauses,
+  extractFtsStems,
+  getCardTargetExpression,
+  matchesCardExpression
+} from '../electron/main/ai'
 
 describe('practiceRewrite workflow', () => {
   it('handles empty database gracefully', async () => {
@@ -137,14 +146,14 @@ describe('practiceRewrite workflow', () => {
     }
   })
 
-  it('limits to top 25 candidates via vector/hybrid search when database > 100 cards', async () => {
+  it('limits candidates via multi-channel candidate retrieval when database > 60 cards', async () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn().mockImplementation(async (_url, opts) => {
       const body = JSON.parse(opts.body)
       const prompt = body.messages[0].content
-      // Verify prompt only injected at most 25 candidates
+      // Verify prompt injected within candidates cap (50-60)
       const idMatches = prompt.match(/\[ID: \d+\]/g) || []
-      expect(idMatches.length).toBeLessThanOrEqual(25)
+      expect(idMatches.length).toBeLessThanOrEqual(60)
 
       return {
         ok: true,
@@ -820,6 +829,416 @@ describe('practiceRewrite workflow', () => {
       expect(res.cleanText).toBe('The executives will call the shots today.')
     })
   })
+
+  describe('Multi-channel retrieval and cross-type candidate expansion', () => {
+    describe('extractClauses', () => {
+      it('returns empty array for empty or whitespace text', () => {
+        expect(extractClauses('')).toEqual([])
+        expect(extractClauses('   \n  ')).toEqual([])
+      })
+
+      it('preserves short sentence as single clause', () => {
+        const clauses = extractClauses('He ran away.')
+        expect(clauses).toHaveLength(1)
+        expect(clauses[0]).toBe('He ran away')
+      })
+
+      it('chunks long text into 4~15 word clauses along punctuation and conjunction boundaries', () => {
+        const longText = 'The British government recently enacted ambitious air quality regulations, requiring local authorities to impose hefty penalties on non-compliant vehicles, while environmental advocates argued that financial fines alone cannot solve the root problem.'
+        const clauses = extractClauses(longText)
+        expect(clauses.length).toBeGreaterThanOrEqual(3)
+        for (const clause of clauses) {
+          const wordCount = clause.split(/\s+/).filter(Boolean).length
+          expect(wordCount).toBeGreaterThanOrEqual(4)
+          expect(wordCount).toBeLessThanOrEqual(16)
+        }
+      })
+
+      it('merges short introductory phrases (< 4 words) so no orphaned sub-4-word fragments exist', () => {
+        const text = 'In fact, the government decides to implement strict measures across the nation to combat the rising pollution levels in cities.'
+        const clauses = extractClauses(text)
+        expect(clauses.length).toBeGreaterThanOrEqual(1)
+        for (const clause of clauses) {
+          const wordCount = clause.split(/\s+/).filter(Boolean).length
+          expect(wordCount).toBeGreaterThanOrEqual(4)
+        }
+        expect(clauses[0]).toContain('In fact')
+      })
+
+      it('preserves decimal numbers and acronyms without shattering sentences into nonsense fragments', () => {
+        const text = 'The U.K. government enacted a £12.50 daily clean air charge. Local authorities welcomed the measure.'
+        const clauses = extractClauses(text)
+        expect(clauses.length).toBe(2)
+        expect(clauses[0]).toContain('£12.50')
+        expect(clauses[0]).toContain('U.K.')
+        expect(clauses[1]).toContain('Local authorities')
+      })
+    })
+
+    describe('extractFtsStems', () => {
+      it('filters common stop words and returns empty array when only stop words given', () => {
+        expect(extractFtsStems('the and or but in on at to for')).toEqual([])
+        expect(extractFtsStems('')).toEqual([])
+      })
+
+      it('correctly stems English inflections (-s, -es, -ed, -ing, -ies)', () => {
+        const text = 'The government stipulates strict fines for polluting while enacting new policies.'
+        const stems = extractFtsStems(text)
+        expect(stems).toContain('stipulate')
+        expect(stems).toContain('fine')
+        expect(stems).toContain('pollute')
+        expect(stems).toContain('enact')
+        expect(stems).toContain('policy')
+        expect(stems).not.toContain('the')
+        expect(stems).not.toContain('for')
+        expect(stems).not.toContain('while')
+      })
+
+      it('stems double-vowel and diphthong words without incorrectly appending "e" (clean, read, speak, wait)', () => {
+        const text = 'They cleaned the room after reading and speaking with waited candidates while maintaining standards.'
+        const stems = extractFtsStems(text)
+        expect(stems).toContain('clean')
+        expect(stems).not.toContain('cleane')
+        expect(stems).toContain('read')
+        expect(stems).not.toContain('reade')
+        expect(stems).toContain('speak')
+        expect(stems).not.toContain('speake')
+        expect(stems).toContain('wait')
+        expect(stems).not.toContain('waite')
+        expect(stems).toContain('maintain')
+        expect(stems).not.toContain('maintaine')
+      })
+
+      it('extracts CJK tokens for multilingual and Glossary cards', () => {
+        const text = '研讨会重点研究了 跨大西洋奴隶贸易 与 行李袋 的历史背景。'
+        const stems = extractFtsStems(text)
+        expect(stems).toContain('跨大西洋奴隶贸易')
+        expect(stems).toContain('行李袋')
+      })
+    })
+
+    describe('getCardTargetExpression', () => {
+      it('extracts English front and Chinese back for Useful Expressions', () => {
+        const card = { id: 1, front: 'stipulate', back: '规定，明确要求', type: 'Useful Expressions' }
+        const res = getCardTargetExpression(card)
+        expect(res.term).toBe('stipulate')
+        expect(res.context).toBe('规定，明确要求')
+      })
+
+      it('extracts English back and Chinese front for Daily Words', () => {
+        const card = { id: 2, front: '行李袋', back: 'duffle bag / holdall', type: 'Daily Words' }
+        const res = getCardTargetExpression(card)
+        expect(res.term).toBe('duffle bag / holdall')
+        expect(res.context).toBe('行李袋')
+      })
+
+      it('extracts English second line from front for Glossary cards', () => {
+        const card = {
+          id: 3,
+          front: '跨大西洋奴隶贸易\ntransatlantic slavery',
+          back: '历史学术术语',
+          type: 'Glossary'
+        }
+        const res = getCardTargetExpression(card)
+        expect(res.term).toBe('transatlantic slavery')
+        expect(res.context).toBe('跨大西洋奴隶贸易 — 历史学术术语')
+      })
+
+      it('handles single-line Glossary front safely', () => {
+        const card = { id: 4, front: 'carbon credit', back: '碳信用', type: 'Glossary' }
+        const res = getCardTargetExpression(card)
+        expect(res.term).toBe('carbon credit')
+        expect(res.context).toBe('碳信用')
+      })
+
+      it('extracts English term from back if Glossary front has only Chinese', () => {
+        const card = { id: 5, front: '碳排放交易系统', back: 'emissions trading system', type: 'Glossary' }
+        const res = getCardTargetExpression(card)
+        expect(res.term).toBe('emissions trading system')
+        expect(res.context).toBe('碳排放交易系统')
+      })
+
+      it('handles null and empty cards gracefully', () => {
+        expect(getCardTargetExpression(null)).toEqual({ term: '', context: '' })
+        expect(getCardTargetExpression({ front: '', back: '' })).toEqual({ term: '', context: '' })
+      })
+    })
+
+    describe('matchesCardExpression', () => {
+      it('matches individual slash-separated expression from Daily Words back', () => {
+        const card = { id: 201, front: '行李袋', back: 'duffle bag / holdall', type: 'Daily Words' }
+        expect(matchesCardExpression(card, 'duffle bag')).toBe(true)
+        expect(matchesCardExpression(card, 'holdall')).toBe(true)
+        expect(matchesCardExpression(card, '行李袋')).toBe(true)
+        expect(matchesCardExpression(card, 'backpack')).toBe(false)
+      })
+
+      it('matches individual English line from Glossary front', () => {
+        const card = {
+          id: 301,
+          front: '跨大西洋奴隶贸易\ntransatlantic slavery',
+          back: '历史学专有名词',
+          type: 'Glossary'
+        }
+        expect(matchesCardExpression(card, 'transatlantic slavery')).toBe(true)
+        expect(matchesCardExpression(card, '跨大西洋奴隶贸易')).toBe(true)
+        expect(matchesCardExpression(card, 'slave trade')).toBe(false)
+      })
+    })
+
+    describe('Multi-channel candidate retrieval execution', () => {
+      it('executes parallel Channels A (SRS), B (FTS), and C (Vector) and harmonizes within cap (<= 60)', async () => {
+        const originalFetch = globalThis.fetch
+        let capturedPrompt = ''
+        globalThis.fetch = vi.fn().mockImplementation(async (_url, opts) => {
+          const body = JSON.parse(opts.body)
+          capturedPrompt = body.messages[0].content
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    rewritten_text: 'The authority will stipulate strict rules.',
+                    used_card_ids: [480]
+                  })
+                }
+              }]
+            })
+          }
+        }) as any
+
+        try {
+          // Total > 60 cards
+          const allCards = Array.from({ length: 80 }, (_, i) => ({
+            id: i + 1,
+            front: `phrase_${i + 1}`,
+            back: `def_${i + 1}`,
+            type: 'Useful Expressions'
+          }))
+          allCards.push({ id: 480, front: 'stipulate', back: '规定', type: 'Useful Expressions' })
+          allCards.push({ id: 999, front: 'Ready Sentence', back: 'Je suis pret.', type: 'Ready Versions' })
+
+          const nowIso = new Date().toISOString()
+          const mockDbHandlers = {
+            getCards: vi.fn().mockReturnValue(allCards),
+            getDueCards: vi.fn().mockReturnValue([
+              { id: 10, front: 'due_card_1', back: 'def', type: 'Useful Expressions', lapses: 3, nextReviewDate: nowIso },
+              { id: 11, front: 'due_card_2', back: 'def', type: 'Useful Expressions', lapses: 1, nextReviewDate: nowIso }
+            ]),
+            searchCards: vi.fn().mockReturnValue([
+              { id: 480, front: 'stipulate', back: '规定', type: 'Useful Expressions' }
+            ]),
+            searchVectorCards: vi.fn().mockResolvedValue([
+              { id: 20, front: 'vector_hit_1', back: 'def', type: 'Useful Expressions' },
+              { id: 21, front: 'vector_hit_2', back: 'def', type: 'Useful Expressions' }
+            ])
+          }
+
+          const res = await practiceRewrite(
+            'The government stipulates strict regulations on pollution.',
+            { aiKey: 'test-key' },
+            mockDbHandlers
+          )
+
+          expect(res.success).toBe(true)
+          expect(mockDbHandlers.getDueCards).toHaveBeenCalled()
+          expect(mockDbHandlers.searchCards).toHaveBeenCalled()
+          expect(mockDbHandlers.searchVectorCards).toHaveBeenCalled()
+
+          // Ready Versions must be excluded
+          expect(capturedPrompt).not.toContain('[ID: 999]')
+          // FTS match must be included
+          expect(capturedPrompt).toContain('[ID: 480] "stipulate"')
+          // SRS due card must be included
+          expect(capturedPrompt).toContain('[ID: 10]')
+          // Vector hit must be included
+          expect(capturedPrompt).toContain('[ID: 20]')
+
+          const idMatches = capturedPrompt.match(/\[ID: \d+\]/g) || []
+          expect(idMatches.length).toBeLessThanOrEqual(60)
+        } finally {
+          globalThis.fetch = originalFetch
+        }
+      })
+    })
+
+    describe('Daily Words and Glossary single-pass integration', () => {
+      it('integrates Daily Words when target expression is in card.back and model uses inline mark tag', async () => {
+        const originalFetch = globalThis.fetch
+        globalThis.fetch = vi.fn().mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    rewritten_text: 'I packed my clothes into a <mark id="201">duffle bag</mark> for the trip.',
+                    used_card_ids: [201]
+                  })
+                }
+              }]
+            })
+          }
+        }) as any
+
+        try {
+          const mockDbHandlers = {
+            getCards: vi.fn().mockReturnValue([
+              { id: 201, front: '行李袋', back: 'duffle bag / holdall', type: 'Daily Words' }
+            ])
+          }
+
+          const res = await practiceRewrite(
+            'I packed my clothes into a large travel bag for the trip.',
+            { aiKey: 'test-key' },
+            mockDbHandlers
+          )
+
+          expect(res.success).toBe(true)
+          expect(res.result.cards).toHaveLength(1)
+          expect(res.result.cards[0].id).toBe(201)
+          expect(res.result.text).toBe('I packed my clothes into a duffle bag for the trip.')
+          const matchedSeg = res.result.segments.find((s: any) => s.card && s.card.id === 201)
+          expect(matchedSeg?.text).toBe('duffle bag')
+        } finally {
+          globalThis.fetch = originalFetch
+        }
+      })
+
+      it('falls back to regex matching for Daily Words even if model drops mark tag', async () => {
+        const originalFetch = globalThis.fetch
+        globalThis.fetch = vi.fn().mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    rewritten_text: 'I packed my clothes into a duffle bag for the trip.',
+                    used_card_ids: [201]
+                  })
+                }
+              }]
+            })
+          }
+        }) as any
+
+        try {
+          const mockDbHandlers = {
+            getCards: vi.fn().mockReturnValue([
+              { id: 201, front: '行李袋', back: 'duffle bag / holdall', type: 'Daily Words' }
+            ])
+          }
+
+          const res = await practiceRewrite(
+            'I packed my clothes into a large travel bag for the trip.',
+            { aiKey: 'test-key' },
+            mockDbHandlers
+          )
+
+          expect(res.success).toBe(true)
+          expect(res.result.cards).toHaveLength(1)
+          expect(res.result.cards[0].id).toBe(201)
+          expect(res.result.text).toBe('I packed my clothes into a duffle bag for the trip.')
+          const matchedSeg = res.result.segments.find((s: any) => s.card && s.card.id === 201)
+          expect(matchedSeg?.text).toBe('duffle bag')
+        } finally {
+          globalThis.fetch = originalFetch
+        }
+      })
+
+      it('integrates Glossary card with multiline front in single-pass practice rewrite', async () => {
+        const originalFetch = globalThis.fetch
+        let capturedPrompt = ''
+        globalThis.fetch = vi.fn().mockImplementation(async (_url, opts) => {
+          const body = JSON.parse(opts.body)
+          capturedPrompt = body.messages[0].content
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    rewritten_text: 'The exhibition examined the brutal history of <mark id="301">transatlantic slavery</mark>.',
+                    used_card_ids: [301]
+                  })
+                }
+              }]
+            })
+          }
+        }) as any
+
+        try {
+          const mockDbHandlers = {
+            getCards: vi.fn().mockReturnValue([
+              {
+                id: 301,
+                front: '跨大西洋奴隶贸易\ntransatlantic slavery',
+                back: '历史学专有名词',
+                type: 'Glossary'
+              }
+            ])
+          }
+
+          const res = await practiceRewrite(
+            'The exhibition examined the brutal history of slave trade across the Atlantic.',
+            { aiKey: 'test-key' },
+            mockDbHandlers
+          )
+
+          expect(res.success).toBe(true)
+          expect(capturedPrompt).toContain('[ID: 301] "transatlantic slavery"')
+          expect(res.result.cards).toHaveLength(1)
+          expect(res.result.cards[0].id).toBe(301)
+          expect(res.result.text).toBe('The exhibition examined the brutal history of transatlantic slavery.')
+          const matchedSeg = res.result.segments.find((s: any) => s.card && s.card.id === 301)
+          expect(matchedSeg?.text).toBe('transatlantic slavery')
+        } finally {
+          globalThis.fetch = originalFetch
+        }
+      })
+
+      it('strictly excludes Ready Versions cards from candidate pool and Prompt', async () => {
+        const originalFetch = globalThis.fetch
+        let capturedPrompt = ''
+        globalThis.fetch = vi.fn().mockImplementation(async (_url, opts) => {
+          const body = JSON.parse(opts.body)
+          capturedPrompt = body.messages[0].content
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    rewritten_text: 'Original text kept.',
+                    used_card_ids: []
+                  })
+                }
+              }]
+            })
+          }
+        }) as any
+
+        try {
+          const mockDbHandlers = {
+            getCards: vi.fn().mockReturnValue([
+              { id: 401, front: 'This is a complete ready version paragraph.', back: '完整译文段落', type: 'Ready Versions' },
+              { id: 101, front: 'screeched to a halt', back: 'stopped suddenly', type: 'Useful Expressions' }
+            ])
+          }
+
+          const res = await practiceRewrite('Some text', { aiKey: 'test-key' }, mockDbHandlers)
+          expect(res.success).toBe(true)
+          expect(capturedPrompt).not.toContain('[ID: 401]')
+          expect(capturedPrompt).toContain('[ID: 101]')
+        } finally {
+          globalThis.fetch = originalFetch
+        }
+      })
+    })
+  })
 })
+
 
 

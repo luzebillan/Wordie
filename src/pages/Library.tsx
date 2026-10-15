@@ -3,6 +3,7 @@ import { Trash2, Library as LibraryIcon, MoreHorizontal, Edit3, RotateCcw, Grid,
 import {
   type CardFilterState,
   DEFAULT_FILTER_STATE,
+  isDefaultFilterState,
   filterAndSortCards,
   computeStatusCounts
 } from '../utils/searchFilter'
@@ -452,7 +453,7 @@ export const Library: React.FC<LibraryProps> = ({ onNavigate }) => {
           <div className="flex flex-col items-center justify-center h-64 bg-white/50 dark:bg-[#1f2028]/50 rounded-3xl border border-gray-200 dark:border-gray-800 border-dashed">
             <LibraryIcon className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
             <p className="text-gray-500 dark:text-gray-400 font-medium">No cards found matching your criteria.</p>
-            {filters !== DEFAULT_FILTER_STATE && (
+            {!isDefaultFilterState(filters) && (
               <button 
                 onClick={() => setFilters(DEFAULT_FILTER_STATE)}
                 className="mt-4 text-purple-600 dark:text-purple-400 text-sm font-medium hover:underline"

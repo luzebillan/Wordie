@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [v2.3.0] - 2026-10-15
+
+Wordie v2.3.0 重点完成了 **Practice Rewrite 多通道精准召回流水线（Multi-Channel RAG Engine）系统性重构**、**全词库类型（Useful Expressions、Daily Words、Glossary）改写打通与规范化英文目标提取**，以及 **Expression Matcher 多态正则防护与全局搜索语法增强**。
+
+### 🚀 核心架构重构与特性治理
+
+#### 1. Practice Rewrite 多通道精准召回流水线 (Multi-Channel RAG Pipeline)
+- **通道 A (SRS 记忆焦点)**：自动拉取至多 15 张当前到期待复习卡片（`nextReviewDate <= now`），按历史遗忘次数（`lapses`）与复习时间严格排序，将写作练习直接服务于记忆薄弱点强化。
+- **通道 B (FTS5 词法与屈折词干倒排)**：提取文本实词并建立高精度形态学词干还原（修复长元音/双元音如 `clean` 不再误转为 `cleane`；精准捕获 `-s`, `-es`, `-ed`, `-ing`），通过 SQLite FTS5 倒排索引直击原文中已使用的词汇与概念定义，召回至多 20 张精准匹配卡片。
+- **通道 C (微粒度从句向量批量检索)**：长文本智能拆解为 4~15 词的高内聚从句单元（内置对 `£12.50`、`4.5` 等小数货币与 `U.K.`、`e.g.` 等缩写的正则防误切保护），单次前向推理批量嵌入（8 个从句仅 21ms），彻底终结 100+ 词整段向量宏观主题对局部动词短语的稀释效应，精准召回 25 张局域语义候选项。
+- **归并去重与安全容量控制**：三通道异步并发拉取并按相关性去重归并，候选池上限严格锁定为 50~60 张卡片（Token 约 1,000~1,200 tokens）。在赋重大模型充足地道替换选择的同时，彻底杜绝全量词库暴涨带来的上下文稀释与延迟开销。
+
+#### 2. 全类型词库打通与规范化英文目标提取 (Cross-Type Vocabulary Integration)
+- **解除 Useful Expressions 单一限制**：彻底打破历史版本仅读 Useful Expressions 的硬编码限制，将日常词汇 `Daily Words` 与专业术语 `Glossary` 全面纳入改写候选池（维持两三行译文模板 `Ready Versions` 的安全排除）。
+- **跨类型英文短语提取与格式化**：
+  - `Useful Expressions`：规范化映射 `front`（英文短语）与 `back`（英文释义）；
+  - `Daily Words`：自适应识别背面（`back`）英文词条（如 `duffle bag / holdall`）为目标词，正面（`front`）中文提示为语境释义；
+  - `Glossary`：精准解析双行正面第二行英文术语与定义；
+- **复合词条离散映射**：模型返回斜杠词条中的任意子词（如 `duffle bag` 匹配 `duffle bag / holdall`）时，后端状态机均可无损定位到原卡片 ID。
+
+#### 3. Expression Matcher 匹配引擎与作用域加固 (Boundary & Scope Protection)
+- **`buildTermRegexes` 多态卡片支持**：针对 Daily Words 自动从 `back` 提取英文词条构建正则，并严格过滤纯中文 `front`，杜绝输入中文提示词被误判为命中的假阳性。
+- **废除无边界子串误伤**：彻底废弃 `parseMarkedText` 中的无边界 `.includes()` 比较，改用严格的离散词条全量比对，消除 `<mark>and</mark>` 误伤 `stand out` 或 `<mark>in</mark>` 误伤 `train` 等匹配漂移。
+
+#### 4. 全局搜索语法与过滤体验升级 (Search Syntax Enhancements)
+- **搜索语法容错与未完成输入保护**：用户在搜索框输入 `is:`、`tag:` 或空格关键词时，不再误将操作符当作字面量清空搜索结果，保留实时动态语法补全建议。
+- **多词空格精准保留**：修复搜索语法解析器在剥离操作符时误删用户末尾空格或复合短语空格的缺陷。
+
+#### 5. 工程规范与质量保证 (Test & CI)
+- **全量测试覆盖**：新增 27 项多通道检索、词干还原与跨类型目标提取单元测试，全量 13 个测试套件、253 项自动化测试 100% 通过（耗时 1.34s，0 失败）。
+- **TypeScript 静态扫描**：全量编译检查 0 错误。
+
+---
+
 ## [v2.2.0] - 2026-10-01
 
 Wordie v2.2.0 重点完成了 **Daily Words 多候选结构化生成与交互挑选架构定型**、**上游代理网关噪声自动隔离**，以及 **卡片详情同义词探索全链路错误透传与重试交互加固**。

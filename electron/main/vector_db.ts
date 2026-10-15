@@ -126,3 +126,45 @@ export async function searchCardVectors(queryText: string, type?: string, limit:
     return [];
   }
 }
+
+export async function searchCardVectorsByBatch(vectors: number[][], excludeType: string = 'Ready Versions', limit: number = 25) {
+  try {
+    const table = await getVectorTable();
+    if (!table) return [];
+    if (!vectors || vectors.length === 0) return [];
+
+    const validVectors = vectors.filter(vec => vec && vec.length > 0);
+    if (validVectors.length === 0) return [];
+
+    const escapedType = excludeType ? excludeType.replace(/'/g, "''") : '';
+    const searchPromises = validVectors.map(async (vec) => {
+      let query = table.search(vec);
+      if (escapedType) {
+        query = query.where(`type != '${escapedType}'`);
+      }
+      return await query.limit(limit).toArray();
+    });
+
+    const allBatches = await Promise.all(searchPromises);
+    const candidateMap = new Map<number, { id: number, _distance: number }>();
+
+    for (const results of allBatches) {
+      for (const r of results) {
+        if (typeof r.id === 'number') {
+          const dist = typeof r._distance === 'number' ? r._distance : 1.0;
+          if (!candidateMap.has(r.id) || dist < candidateMap.get(r.id)!._distance) {
+            candidateMap.set(r.id, { id: r.id, _distance: dist });
+          }
+        }
+      }
+    }
+
+    return Array.from(candidateMap.values())
+      .sort((a, b) => a._distance - b._distance)
+      .slice(0, limit);
+  } catch (e: any) {
+    console.error('Failed to search card vectors by batch:', e.message || e);
+    return [];
+  }
+}
+

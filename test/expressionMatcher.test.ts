@@ -3,7 +3,8 @@ import {
   buildTermRegexes,
   isCardInText,
   findCardMatches,
-  segmentTextWithCards
+  segmentTextWithCards,
+  parseMarkedText
 } from '../src/utils/expressionMatcher'
 
 describe('expressionMatcher', () => {
@@ -163,5 +164,57 @@ First, be tuned in to their personal boundaries without overstepping. Kids shoul
 
     const cardFigure = { id: 505, front: 'figure out' }
     expect(isCardInText(cardFigure, 'We eventually figured it out.')).toBe(true)
+  })
+
+  it('Daily Words: generates regex patterns from card.back and matches text', () => {
+    const card = { id: 601, front: '行李袋', back: 'duffle bag / holdall', type: 'Daily Words' }
+    const regexes = buildTermRegexes(card)
+    expect(regexes.length).toBeGreaterThanOrEqual(2)
+
+    expect(isCardInText(card, 'He packed his luggage into a duffle bag.')).toBe(true)
+    expect(isCardInText(card, 'He carried a black holdall into the train.')).toBe(true)
+    expect(isCardInText(card, 'Unrelated sentence about luggage.')).toBe(false)
+
+    const matches = findCardMatches('He packed his luggage into a duffle bag.', [card])
+    expect(matches).toHaveLength(1)
+    expect(matches[0].matchText).toBe('duffle bag')
+    expect(matches[0].card.id).toBe(601)
+  })
+
+  it('Daily Words: supports single term and inflections in card.back', () => {
+    const card = { id: 602, front: '(微波炉) 叮一下', back: 'nuke', type: 'Daily Words' }
+    expect(isCardInText(card, 'I nuked the leftovers for dinner.')).toBe(true)
+    expect(isCardInText(card, 'Just nuke it in the microwave.')).toBe(true)
+  })
+
+  it('Daily Words: ignores pure Chinese front when back contains English', () => {
+    const card = { id: 603, front: '行李袋', back: 'duffle bag', type: 'Daily Words' }
+    // Should NOT match Chinese in English text
+    const regexes = buildTermRegexes(card)
+    expect(regexes.some(r => r.source.includes('行李袋'))).toBe(false)
+    expect(regexes.some(r => r.source.includes('duffle'))).toBe(true)
+  })
+
+  it('parseMarkedText: prevents false-positive substring matches (e.g. "and" does not match "stand out")', () => {
+    const candidates = [
+      { id: 701, front: '突出，站出来', back: 'stand out', type: 'Daily Words' },
+      { id: 702, front: '火车', back: 'train', type: 'Daily Words' }
+    ]
+    // Text has "and" and "in" tagged without id
+    const raw = 'They <mark>and</mark> their friends went <mark>in</mark> together.'
+    const res = parseMarkedText(raw, candidates)
+    // "and" must NOT be matched to "stand out", "in" must NOT be matched to "train"
+    expect(res.cards).toHaveLength(0)
+    expect(res.segments.every(s => s.card === null)).toBe(true)
+  })
+
+  it('parseMarkedText: matches discrete terms from multiline Glossary front without numeric id', () => {
+    const candidates = [
+      { id: 703, front: '跨大西洋奴隶贸易\ntransatlantic slavery', back: '历史学术语', type: 'Glossary' }
+    ]
+    const raw = 'The exhibition covered <mark id="transatlantic slavery">transatlantic slavery</mark> in detail.'
+    const res = parseMarkedText(raw, candidates)
+    expect(res.cards).toHaveLength(1)
+    expect(res.cards[0].id).toBe(703)
   })
 })

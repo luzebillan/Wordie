@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Search,
   RotateCcw,
@@ -10,8 +10,10 @@ import {
 import {
   type CardFilterState,
   DEFAULT_FILTER_STATE,
+  isDefaultFilterState,
   filterAndSortCards,
-  computeStatusCounts
+  computeStatusCounts,
+  parseSearchSyntax
 } from '../utils/searchFilter'
 import { AdvancedFilterBar } from '../components/AdvancedFilterBar'
 import { TaxonomyTagBadge } from '../components/TaxonomyTagBadge'
@@ -33,11 +35,19 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [cardsToDelete, setCardsToDelete] = useState<number[]>([])
 
+  const isInitialMount = useRef(true)
+  const lastFetchedQuery = useRef<string | null>(null)
+
   const fetchSearchResults = async (q: string) => {
     setIsLoading(true)
     try {
-      const data = await window.ipcRenderer.searchCards(q)
-      setCards(data || [])
+      if (q) {
+        const data = await window.ipcRenderer.searchCards(q)
+        setCards(data || [])
+      } else {
+        const data = await window.ipcRenderer.getCards()
+        setCards(data || [])
+      }
     } catch (err) {
       console.error('Failed to execute search:', err)
       setCards([])
@@ -46,11 +56,37 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
     }
   }
 
-  // Update query when prop changes
+  // Update query and fetch immediately when prop changes from outside (e.g. sidebar navigation)
   useEffect(() => {
     setFilters(prev => ({ ...prev, query: query || '' }))
-    fetchSearchResults(query || '')
+    const { cleanQuery } = parseSearchSyntax(query || '')
+    const trimmed = cleanQuery.trim()
+    lastFetchedQuery.current = trimmed
+    fetchSearchResults(trimmed)
   }, [query])
+
+  // Debounced search when filters.query changes (e.g. typing in AdvancedFilterBar)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
+
+    const { cleanQuery } = parseSearchSyntax(filters.query || '')
+    const trimmed = cleanQuery.trim()
+
+    // If normalized query didn't change (e.g. user typing whitespace), skip redundant backend fetch
+    if (trimmed === lastFetchedQuery.current) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      lastFetchedQuery.current = trimmed
+      fetchSearchResults(trimmed)
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [filters.query])
 
   // Sync on deletion and updates
   useEffect(() => {
@@ -64,7 +100,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
       })
     }
     const handleCardUpdated = () => {
-      fetchSearchResults(filters.query)
+      const { cleanQuery } = parseSearchSyntax(filters.query || '')
+      fetchSearchResults(cleanQuery.trim())
     }
     window.addEventListener('card-deleted', handleCardDeleted)
     window.addEventListener('stats-updated', handleCardUpdated)
@@ -283,7 +320,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query, onNavigate 
           <div className="text-center text-gray-500 mt-10 bg-white/50 dark:bg-[#1f2028]/50 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed p-12">
             <Search className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
             <p className="font-medium text-gray-600 dark:text-gray-400">No cards found matching your criteria.</p>
-            {filters !== DEFAULT_FILTER_STATE && (
+            {!isDefaultFilterState(filters) && (
               <button
                 onClick={() => setFilters(DEFAULT_FILTER_STATE)}
                 className="mt-3 text-sm text-purple-600 dark:text-purple-400 font-bold hover:underline"

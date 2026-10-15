@@ -202,12 +202,48 @@ export function getVerbInflectionPattern(firstWord: string): string {
 }
 
 /**
- * Generate regex patterns for a card front.
+ * Generate regex patterns for a card front or card object.
+ * When card.type === 'Daily Words' and card.back contains English, terms from card.back
+ * are also used to generate regex patterns.
  */
-export function buildTermRegexes(front: string): RegExp[] {
-  if (!front || typeof front !== 'string') return []
+export function buildTermRegexes(frontOrCard: string | any, cardBack?: string, cardType?: string): RegExp[] {
+  if (!frontOrCard) return []
 
-  const lines = front.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  let front = ''
+  let back = cardBack
+  let type = cardType
+
+  if (typeof frontOrCard === 'string') {
+    front = frontOrCard
+  } else if (typeof frontOrCard === 'object' && frontOrCard !== null) {
+    front = frontOrCard.front || ''
+    if (back === undefined) back = frontOrCard.back
+    if (type === undefined) type = frontOrCard.type
+  }
+
+  const lines: string[] = []
+  const rawLines = front && typeof front === 'string'
+    ? front.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    : []
+
+  const hasEngLine = rawLines.some(l => /[a-zA-Z]/.test(l))
+  if (hasEngLine) {
+    // If multiline front has English lines (e.g. Glossary with Chinese title + English term),
+    // prioritize English lines for expression matching.
+    lines.push(...rawLines.filter(l => /[a-zA-Z]/.test(l)))
+  } else if (type !== 'Daily Words' || !back || !/[a-zA-Z]/.test(back)) {
+    // Keep front lines if this is not a Daily Words card whose English is on the back
+    lines.push(...rawLines)
+  }
+
+  if (type === 'Daily Words' && back && typeof back === 'string' && /[a-zA-Z]/.test(back)) {
+    // Extract English expressions from Daily Words back (supporting "duffle bag / holdall", "nuke", etc.)
+    const backTerms = back.split(/[\r\n/;,]+/).map(t => t.trim()).filter(t => t.length > 0 && /[a-zA-Z]/.test(t))
+    lines.push(...backTerms)
+  }
+
+  if (lines.length === 0) return []
+
   const regexes: RegExp[] = []
 
   for (const line of lines) {
@@ -366,8 +402,8 @@ export function buildTermRegexes(front: string): RegExp[] {
  * Checks whether a card's expression exists in a given text.
  */
 export function isCardInText(card: any, text: string): boolean {
-  if (!card || !card.front || !text) return false
-  const regexes = buildTermRegexes(card.front)
+  if (!card || !text) return false
+  const regexes = buildTermRegexes(card)
   for (const reg of regexes) {
     if (reg.test(text)) return true
   }
@@ -383,8 +419,8 @@ export function findCardMatches(text: string, cards: any[]): MatchSpan[] {
   const allMatches: MatchSpan[] = []
 
   for (const card of cards) {
-    if (!card || !card.front) continue
-    const regexes = buildTermRegexes(card.front)
+    if (!card) continue
+    const regexes = buildTermRegexes(card)
 
     for (const reg of regexes) {
       const globalReg = new RegExp(reg.source, 'gi')
@@ -497,12 +533,24 @@ export function parseMarkedText(
 
     let matchedCard: any = null
 
-    // 1. Exact lookup by card front matching rawIdStr (prevents fronts like "catch-22" or "24/7" from being hijacked as integer ID 22 or 24)
+    const matchesCardByTerm = (c: any, queryNorm: string) => {
+      if (!c || !queryNorm) return false
+      if (norm(c.front) === queryNorm) return true
+      const frontLines = (c.front || '').split(/\r?\n/).map((l: string) => norm(l)).filter(Boolean)
+      if (frontLines.includes(queryNorm)) return true
+      if (c.back) {
+        const backTerms = c.back.split(/[\r\n/;,]+/).map((t: string) => norm(t)).filter(Boolean)
+        if (backTerms.includes(queryNorm)) return true
+      }
+      return false
+    }
+
+    // 1. Exact lookup by card front or discrete term matching rawIdStr (prevents fronts like "catch-22" or "24/7" from being hijacked as integer ID 22 or 24)
     if (rawIdStr) {
       const rawNorm = norm(rawIdStr)
-      matchedCard = candidateCards.find(c => c && norm(c.front) === rawNorm)
+      matchedCard = candidateCards.find(c => matchesCardByTerm(c, rawNorm))
       if (!matchedCard && allLibraryCards && allLibraryCards.length > 0) {
-        matchedCard = allLibraryCards.find(c => c && norm(c.front) === rawNorm)
+        matchedCard = allLibraryCards.find(c => matchesCardByTerm(c, rawNorm))
       }
     }
 
@@ -518,19 +566,23 @@ export function parseMarkedText(
       }
     }
 
-    // 3. Lookup by exact front string matching cleanContent
+    // 3. Lookup by exact front or term string matching cleanContent
     if (!matchedCard) {
       const contentNorm = norm(cleanContent)
-      matchedCard = candidateCards.find(c => c && norm(c.front) === contentNorm)
+      matchedCard = candidateCards.find(c => matchesCardByTerm(c, contentNorm))
     }
 
     // 4. Fallback: match by isCardInText with candidateCards
-    // Sort candidate cards by front length descending so longer phrases
+    // Sort candidate cards by length descending so longer phrases
     // (e.g. "turn a blind eye to") match before shorter sub-words (e.g. "turn")
     if (!matchedCard && cleanContent.trim()) {
       const sortedCandidates = [...candidateCards]
-        .filter(c => c && c.front)
-        .sort((a, b) => (b.front.length - a.front.length))
+        .filter(c => c && (c.front || c.back))
+        .sort((a, b) => {
+          const aLen = a.front ? a.front.length : (a.back ? a.back.length : 0)
+          const bLen = b.front ? b.front.length : (b.back ? b.back.length : 0)
+          return bLen - aLen
+        })
       matchedCard = sortedCandidates.find(c => isCardInText(c, cleanContent))
     }
 
@@ -569,9 +621,9 @@ export function parseMarkedText(
         // Preserve legitimate abbreviation period (e.g. "sth.", "etc.")
         const lastWord = (coreText.split(/\s+/).pop() || '').toLowerCase()
         const isAbbrWord = /^(?:sth|sb|swh|etc|e\.g|i\.e)\.$/i.test(lastWord)
-        const isExactFrontMatch = matchedCard.front && norm(matchedCard.front) === norm(coreText)
+        const isExactMatch = matchesCardByTerm(matchedCard, norm(coreText))
 
-        if (isAbbrWord || isExactFrontMatch) {
+        if (isAbbrWord || isExactMatch) {
           // If followed by closing quotes or commas (e.g. "sth.","), detach the trailing quote/comma only
           const subMatch = candidatePunct.match(/^(\.)([,"“”'’')\]\}]+)$/)
           if (subMatch) {

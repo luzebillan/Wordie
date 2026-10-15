@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { getImagesDir } from './imageCache'
+import { getEmbeddingsBatch } from './semantic'
 
 import { 
   DEFAULT_PROMPT_GLOSSARY,
@@ -1497,26 +1498,309 @@ export function extractJsonObject<T = any>(rawText: string): T | null {
   return null
 }
 
+const COMMON_STOP_WORDS = new Set([
+  'a', 'about', 'after', 'all', 'also', 'an', 'and', 'any', 'are', 'as', 'at',
+  'be', 'been', 'being', 'but', 'by', 'can', 'could', 'did', 'do', 'does',
+  'for', 'from', 'had', 'has', 'have', 'he', 'her', 'him', 'his', 'how',
+  'i', 'if', 'in', 'into', 'is', 'it', 'its', 'just', 'may', 'me', 'might',
+  'more', 'most', 'must', 'my', 'no', 'not', 'now', 'of', 'on', 'one', 'only',
+  'or', 'our', 'out', 'over', 'shall', 'she', 'should', 'so', 'some', 'than',
+  'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this',
+  'those', 'to', 'too', 'up', 'us', 'was', 'we', 'were', 'what', 'when',
+  'where', 'which', 'while', 'who', 'whom', 'why', 'will', 'with', 'would',
+  'you', 'your'
+])
+
+export function extractFtsStems(text: string): string[] {
+  if (!text || typeof text !== 'string') return []
+  const words = text.match(/[a-zA-Z]+/g) || []
+  const stems: string[] = []
+  const seen = new Set<string>()
+
+  // 1. English inflection stemming
+  for (const rawWord of words) {
+    const w = rawWord.toLowerCase()
+    if (w.length < 3 || COMMON_STOP_WORDS.has(w)) continue
+
+    let stem = w
+    if (w.endsWith('ies') && w.length > 4) {
+      stem = w.slice(0, -3) + 'y'
+    } else if (w.endsWith('ying') && w.length >= 5) {
+      stem = w.slice(0, -4) + 'ie'
+    } else if (w.endsWith('ing') && w.length > 5) {
+      const base = w.slice(0, -3)
+      if (/(.)\1$/.test(base) && !base.endsWith('ll') && !base.endsWith('ss')) {
+        stem = base.slice(0, -1)
+      } else if (base.endsWith('ee')) {
+        stem = base
+      } else if (base.endsWith('u')) {
+        stem = base + 'e'
+      } else if (/[aeiou]{2}[b-df-hj-np-tv-z]$/.test(base)) {
+        // Double vowel / diphthong before consonant: "clean", "read", "speak", "wait", "maintain", "claim", "fail"
+        stem = base
+      } else if (/[^aeiou][aeiou][b-df-hj-np-tv-z]$/.test(base)) {
+        // Single vowel: "make", "hope", "pollute", "stipulate", "fine", "rule"
+        stem = base + 'e'
+      } else {
+        stem = base
+      }
+    } else if (w.endsWith('ied') && w.length > 4) {
+      stem = w.slice(0, -3) + 'y'
+    } else if (w.endsWith('ed') && w.length > 4) {
+      if (w.endsWith('eed')) {
+        if (/(?:succ|proc|exc)eed$/i.test(w)) {
+          stem = w.slice(0, -2)
+        } else if (/(?:agr|fr|guarant)eed$/i.test(w)) {
+          stem = w.slice(0, -1)
+        } else {
+          stem = w
+        }
+      } else {
+        const base = w.slice(0, -2)
+        if (/(.)\1$/.test(base) && !base.endsWith('ll') && !base.endsWith('ss')) {
+          stem = base.slice(0, -1)
+        } else if (/[aeiou]{2}[b-df-hj-np-tv-z]$/.test(base)) {
+          // Double vowel / diphthong before consonant: "cleaned" -> "clean", "repeated" -> "repeat"
+          stem = base
+        } else if (/[^aeiou][aeiou][b-df-hj-np-tv-z]$/.test(base)) {
+          // Single vowel: "stipulated" -> "stipulate", "fined" -> "fine", "ruled" -> "rule"
+          stem = base + 'e'
+        } else if (/(?:[cgvsz]|st)ed$/i.test(w)) {
+          // e-drop verbs like danced -> dance, changed -> change, lived -> live, wasted -> waste
+          stem = base + 'e'
+        } else {
+          stem = base
+        }
+      }
+    } else if (/(?:[sxz]|[sc]h)es$/i.test(w) && w.length > 4) {
+      stem = w.slice(0, -2)
+    } else if (w.endsWith('ves') && w.length > 4) {
+      if (w === 'lives' || w === 'relives') {
+        stem = 'live'
+      } else {
+        stem = w.slice(0, -3) + 'f'
+      }
+    } else if (w.endsWith('s') && !w.endsWith('ss') && !w.endsWith('us') && !w.endsWith('is') && w.length > 3) {
+      stem = w.slice(0, -1)
+    }
+
+    if (!COMMON_STOP_WORDS.has(stem) && stem.length >= 3 && !seen.has(stem)) {
+      seen.add(stem)
+      stems.push(stem)
+    }
+  }
+
+  // 2. CJK token extraction for multilingual / Glossary cards
+  const cjkPhrases = text.match(/[\u4e00-\u9fa5]{2,15}/g) || []
+  for (const phrase of cjkPhrases) {
+    if (!seen.has(phrase) && stems.length < 25) {
+      seen.add(phrase)
+      stems.push(phrase)
+    }
+  }
+
+  return stems
+}
+
+function countClauseUnits(s: string): number {
+  const cjk = (s.match(/[\u4e00-\u9fa5]/g) || []).length
+  const words = (s.replace(/[\u4e00-\u9fa5]/g, ' ').match(/[a-zA-Z0-9'-]+/g) || []).length
+  return words + Math.ceil(cjk / 2)
+}
+
+export function extractClauses(text: string): string[] {
+  if (!text || typeof text !== 'string') return []
+  const trimmed = text.trim()
+  if (!trimmed) return []
+
+  // Split on sentence boundaries, preserving decimal numbers (e.g. £12.50) and single-letter acronyms (e.g. U.K.)
+  const sentenceDelim = /(?<!\b[A-Za-z]|e\.g|i\.e|\d)[.?!;。！？；]+(?:\s+|$)|[\r\n]+/
+  const sentences = trimmed.split(sentenceDelim).map(s => s.trim()).filter(Boolean)
+  if (sentences.length === 0) return []
+
+  const CONJUNCTION_SPLIT = /\b(?:and|but|or|so|because|although|though|while|whereas|since|if|unless|when|where|that|which)\b/i
+  const PUNCT_SPLIT = /[,:\u2014\u2013()，、：—（）]+/
+  const rawChunks: string[] = []
+
+  for (const sentence of sentences) {
+    const units = countClauseUnits(sentence)
+    if (units <= 15) {
+      rawChunks.push(sentence)
+      continue
+    }
+
+    const punctParts = sentence.split(PUNCT_SPLIT).map(p => p.trim()).filter(Boolean)
+    for (const part of punctParts) {
+      const partUnits = countClauseUnits(part)
+      if (partUnits <= 15) {
+        rawChunks.push(part)
+      } else {
+        const conjParts = part.split(CONJUNCTION_SPLIT).map(p => p.trim()).filter(Boolean)
+        for (const cp of conjParts) {
+          const cpUnits = countClauseUnits(cp)
+          if (cpUnits <= 15) {
+            rawChunks.push(cp)
+          } else {
+            const cpWords = cp.split(/\s+/).filter(Boolean)
+            for (let i = 0; i < cpWords.length; i += 10) {
+              const slice = cpWords.slice(i, i + 12).join(' ')
+              if (slice.trim()) rawChunks.push(slice.trim())
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Bidirectional merging: absorb short fragments (< 4 units) into neighboring chunks
+  const merged: string[] = []
+  for (let i = 0; i < rawChunks.length; i++) {
+    const chunk = rawChunks[i].trim()
+    if (!chunk) continue
+    const unitCount = countClauseUnits(chunk)
+
+    if (merged.length > 0) {
+      const last = merged[merged.length - 1]
+      const lastUnitCount = countClauseUnits(last)
+      // Merge if either current or previous chunk is sub-4 and combined length is <= 16
+      if ((unitCount < 4 || lastUnitCount < 4) && (lastUnitCount + unitCount <= 16)) {
+        merged[merged.length - 1] = `${last} ${chunk}`
+        continue
+      }
+    }
+    merged.push(chunk)
+  }
+
+  // Edge absorption for head or tail sub-4 fragments
+  if (merged.length > 1) {
+    const last = merged[merged.length - 1]
+    const lastUnits = countClauseUnits(last)
+    if (lastUnits < 4) {
+      const prev = merged[merged.length - 2]
+      const prevUnits = countClauseUnits(prev)
+      if (prevUnits + lastUnits <= 18) {
+        merged[merged.length - 2] = `${prev} ${last}`
+        merged.pop()
+      }
+    }
+  }
+  if (merged.length > 1) {
+    const first = merged[0]
+    const firstUnits = countClauseUnits(first)
+    if (firstUnits < 4) {
+      const next = merged[1]
+      const nextUnits = countClauseUnits(next)
+      if (firstUnits + nextUnits <= 18) {
+        merged[1] = `${first} ${next}`
+        merged.shift()
+      }
+    }
+  }
+
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const c of merged) {
+    const cleaned = c.replace(/^[,\s;:\u2014\u2013，、：—（）]+|[,\s;:\u2014\u2013，、：—（）]+$/g, '').trim()
+    const norm = cleaned.toLowerCase()
+    if (cleaned && !seen.has(norm)) {
+      seen.add(norm)
+      result.push(cleaned)
+    }
+  }
+
+  if (result.length === 0 && trimmed) {
+    return [trimmed]
+  }
+
+  return result
+}
+
+export function getCardTargetExpression(card: any): { term: string; context: string } {
+  if (!card) return { term: '', context: '' }
+
+  const front = card.front ? String(card.front).trim() : ''
+  const back = card.back ? String(card.back).trim() : ''
+  const type = card.type || ''
+
+  if (type === 'Daily Words') {
+    if (/[a-zA-Z]/.test(back)) {
+      return { term: back, context: front }
+    } else if (/[a-zA-Z]/.test(front)) {
+      return { term: front, context: back }
+    }
+    return { term: back || front, context: front || back }
+  }
+
+  if (type === 'Glossary') {
+    const lines = front.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length >= 2 && /[a-zA-Z]/.test(lines[1])) {
+      const term = lines[1]
+      const contextParts = [lines[0], ...lines.slice(2), back].filter(Boolean)
+      return { term, context: contextParts.join(' — ') }
+    }
+    const engIndex = lines.findIndex(l => /[a-zA-Z]/.test(l))
+    if (engIndex !== -1) {
+      const term = lines[engIndex]
+      const contextParts = [...lines.filter((_, i) => i !== engIndex), back].filter(Boolean)
+      return { term, context: contextParts.join(' — ') }
+    }
+    if (/[a-zA-Z]/.test(back)) {
+      return { term: back, context: lines.join(' — ') || front }
+    }
+    return { term: lines[0] || front, context: [...lines.slice(1), back].filter(Boolean).join(' — ') }
+  }
+
+  return { term: front, context: back }
+}
+
+export function matchesCardExpression(card: any, itemStr: string): boolean {
+  if (!card || !itemStr) return false
+  const itemNorm = itemStr.replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()
+  const { term } = getCardTargetExpression(card)
+  const termClean = term.replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()
+  if (termClean === itemNorm || term.toLowerCase().trim() === itemNorm) return true
+  const frontClean = (card.front || '').replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()
+  if (frontClean === itemNorm || (card.front || '').toLowerCase().trim() === itemNorm) return true
+
+  // Match any discrete line of multiline front (e.g. Glossary)
+  const frontLines = (card.front || '').split(/\r?\n/).map((l: string) => l.replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()).filter(Boolean)
+  if (frontLines.includes(itemNorm)) return true
+
+  // Match any discrete back expression (e.g. Daily Words "duffle bag / holdall")
+  if (card.back) {
+    const backTerms = card.back.split(/[\r\n/;,]+/).map((t: string) => t.replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()).filter(Boolean)
+    if (backTerms.includes(itemNorm)) return true
+  }
+
+  return false
+}
+
 export async function practiceRewrite(text: string, settings: any, dbHandlers: any) {
   if (!text || text.trim() === '') {
     return { success: true, result: { text: '', cards: [] } }
   }
 
-  let allCards = dbHandlers.getCards ? dbHandlers.getCards('Useful Expressions') : []
+  let allCards = dbHandlers.getCards ? dbHandlers.getCards() : []
   if (!allCards || allCards.length === 0) {
-    // Fallback to all cards if no 'Useful Expressions' specific cards exist
-    allCards = dbHandlers.getCards ? dbHandlers.getCards() : []
+    allCards = dbHandlers.getCards ? dbHandlers.getCards('Useful Expressions') : []
   }
   
-  allCards = (allCards || []).filter((c: any) => c && c.front && String(c.front).trim().length > 0)
+  const eligibleCards = (allCards || []).filter((c: any) => {
+    if (!c) return false
+    if (c.type === 'Ready Versions') return false
+    const frontStr = c.front ? String(c.front).trim() : ''
+    if (frontStr.length === 0) return false
+    const { term } = getCardTargetExpression(c)
+    return Boolean(term && term.trim().length > 0)
+  })
 
-  if (!allCards || allCards.length === 0) {
+  if (!eligibleCards || eligibleCards.length === 0) {
     return { success: false, error: 'Your database is empty. Add some Useful Expressions first!' }
   }
 
   let candidateCards: any[] = []
-  if (allCards.length <= 100) {
-    // Total <= 100: Pass all cards, prioritizing due cards first
+  if (eligibleCards.length <= 60) {
+    // Total <= 60: Pass all eligible cards, prioritizing due cards first
     let dueCardIds = new Set<number>()
     try {
       if (dbHandlers.getDueCards) {
@@ -1525,77 +1809,122 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
       }
     } catch {}
 
-    candidateCards = [...allCards].sort((a, b) => {
+    candidateCards = [...eligibleCards].sort((a, b) => {
       const aDue = dueCardIds.has(a.id) ? 1 : 0
       const bDue = dueCardIds.has(b.id) ? 1 : 0
       return bDue - aDue
     })
   } else {
-    // Total > 100: Use top 25 candidates via hybrid/vector search
+    // Total > 60: Multi-channel parallel candidate retrieval
     const candidateMap = new Map<number, any>()
 
-    // 1. Vector similarity search on input text
-    try {
-      if (dbHandlers.searchVectorCards) {
-        const vectorMatches = await dbHandlers.searchVectorCards(text, 'Useful Expressions', 25)
-        if (Array.isArray(vectorMatches)) {
-          for (const c of vectorMatches) {
-            candidateMap.set(c.id, c)
-            if (candidateMap.size >= 25) break
-          }
-        }
-      } else if (dbHandlers.findSimilarCards) {
-        const similar = await dbHandlers.findSimilarCards(text, '', 'Useful Expressions', false, '', { minScore: 0, limit: 25 })
-        if (Array.isArray(similar)) {
-          for (const c of similar) {
-            candidateMap.set(c.id, c)
-            if (candidateMap.size >= 25) break
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("[Practice Rewrite] Vector candidate search failed:", e)
-    }
-
-    // 2. Supplement with lexical FTS search
-    if (candidateMap.size < 25 && dbHandlers.searchCards) {
-      try {
-        const ftsMatches = dbHandlers.searchCards(text, 'Useful Expressions', 25 - candidateMap.size)
-        if (Array.isArray(ftsMatches)) {
-          for (const c of ftsMatches) {
-            if (!candidateMap.has(c.id)) {
-              candidateMap.set(c.id, c)
-              if (candidateMap.size >= 25) break
+    const [channelACards, channelBCards, channelCCards] = await Promise.all([
+      // Channel A (SRS Due Cards): up to 15 cards
+      (async () => {
+        try {
+          if (!dbHandlers.getDueCards) return []
+          const rawDue = await Promise.resolve(dbHandlers.getDueCards()) || []
+          const now = Date.now()
+          const due = (rawDue || []).filter((c: any) => {
+            if (!c || c.type === 'Ready Versions') return false
+            if (!c.nextReviewDate) return true
+            const t = new Date(c.nextReviewDate).getTime()
+            return !isNaN(t) && t <= now
+          })
+          due.sort((a: any, b: any) => {
+            const lapsesDiff = (b.lapses || 0) - (a.lapses || 0)
+            if (lapsesDiff !== 0) return lapsesDiff
+            if (a.nextReviewDate && b.nextReviewDate) {
+              return new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime()
             }
-          }
+            if (a.nextReviewDate && !b.nextReviewDate) return -1
+            if (!a.nextReviewDate && b.nextReviewDate) return 1
+            return (a.id || 0) - (b.id || 0)
+          })
+          return due.slice(0, 15)
+        } catch (e) {
+          console.warn('[Practice Rewrite] Channel A (SRS) failed:', e)
+          return []
         }
-      } catch {}
-    }
+      })(),
 
-    // 3. Supplement with priority due cards if still < 25
-    if (candidateMap.size < 25 && dbHandlers.getDueCards) {
-      try {
-        const dueCards = (dbHandlers.getDueCards() || []).filter((c: any) => c.type === 'Useful Expressions' || !c.type)
-        for (const c of dueCards) {
-          if (!candidateMap.has(c.id)) {
-            candidateMap.set(c.id, c)
-            if (candidateMap.size >= 25) break
-          }
+      // Channel B (FTS Lexical/Stem): up to 20 hits via FTS5 BM25 matching stems
+      (async () => {
+        try {
+          if (!dbHandlers.searchCards) return []
+          const stems = extractFtsStems(text)
+          if (!stems || stems.length === 0) return []
+          const queryStr = stems.slice(0, 20).join(' ')
+          const hits = await Promise.resolve(dbHandlers.searchCards(queryStr, undefined, 20)) || []
+          return (Array.isArray(hits) ? hits : []).filter((c: any) => c && c.type !== 'Ready Versions').slice(0, 20)
+        } catch (e) {
+          console.warn('[Practice Rewrite] Channel B (FTS) failed:', e)
+          return []
         }
-      } catch {}
-    }
+      })(),
 
-    // 4. Fallback to allCards if still < 25
-    if (candidateMap.size < 25) {
-      for (const c of allCards) {
-        if (!candidateMap.has(c.id)) {
-          candidateMap.set(c.id, c)
-          if (candidateMap.size >= 25) break
+      // Channel C (Clause Vector): batch embeddings across extracted clauses, up to 25 cards
+      (async () => {
+        try {
+          const clauses = extractClauses(text)
+          const clauseList = (clauses.length > 0 ? clauses : [text]).slice(0, 20)
+
+          if (dbHandlers.searchVectorCardsByVectors) {
+            const vectors = await getEmbeddingsBatch(clauseList)
+            const hits = await dbHandlers.searchVectorCardsByVectors(vectors, 25)
+            return (Array.isArray(hits) ? hits : []).filter((c: any) => c && c.type !== 'Ready Versions').slice(0, 25)
+          } else if (dbHandlers.searchVectorCards) {
+            const results = await Promise.all(
+              clauseList.map(c => dbHandlers.searchVectorCards(c, undefined, 25).catch(() => []))
+            )
+            const flat = results.flat()
+            const hitsMap = new Map<number, any>()
+            for (const c of flat) {
+              if (c && c.id && c.type !== 'Ready Versions' && !hitsMap.has(c.id)) {
+                hitsMap.set(c.id, c)
+              }
+            }
+            return Array.from(hitsMap.values()).slice(0, 25)
+          } else if (dbHandlers.findSimilarCards) {
+            const similar = await dbHandlers.findSimilarCards(text, '', undefined, false, '', { minScore: 0, limit: 25 })
+            return (Array.isArray(similar) ? similar : []).filter((c: any) => c && c.type !== 'Ready Versions').slice(0, 25)
+          }
+          return []
+        } catch (e) {
+          console.warn('[Practice Rewrite] Channel C (Vector) failed:', e)
+          return []
         }
+      })()
+    ])
+
+    // Harmonize & Deduplicate: Channel B (FTS lexical) -> Channel C (Clause Vector) -> Channel A (SRS Due)
+    for (const c of channelBCards) {
+      if (!candidateMap.has(c.id)) {
+        candidateMap.set(c.id, c)
+      }
+    }
+    for (const c of channelCCards) {
+      if (!candidateMap.has(c.id)) {
+        candidateMap.set(c.id, c)
+        if (candidateMap.size >= 60) break
+      }
+    }
+    for (const c of channelACards) {
+      if (!candidateMap.has(c.id)) {
+        candidateMap.set(c.id, c)
+        if (candidateMap.size >= 60) break
       }
     }
 
-    candidateCards = Array.from(candidateMap.values()).slice(0, 25)
+    // Fallback if candidateMap is completely empty but eligibleCards has items
+    if (candidateMap.size === 0) {
+      for (const c of eligibleCards) {
+        candidateMap.set(c.id, c)
+        if (candidateMap.size >= 60) break
+      }
+    }
+
+    candidateCards = Array.from(candidateMap.values()).slice(0, 60)
   }
 
   if (candidateCards.length === 0) {
@@ -1608,10 +1937,11 @@ export async function practiceRewrite(text: string, settings: any, dbHandlers: a
     }
   }
 
-  // Build <vocabulary_bank> string
+  // Build <vocabulary_bank> string using getCardTargetExpression
   const vocabBankStr = candidateCards.map(c => {
-    const def = c.back && c.back.trim() ? ` — Definition: ${c.back.trim()}` : ''
-    return `[ID: ${c.id}] "${c.front}"${def}`
+    const { term, context } = getCardTargetExpression(c)
+    const def = context ? ` — Definition: ${context}` : ''
+    return `[ID: ${c.id}] "${term}"${def}`
   }).join('\n')
 
   const customTemplate = settings['promptPracticeRewrite']
@@ -1691,10 +2021,7 @@ If no expressions from the vocabulary bank qualify or fit, return the original t
           usedCardIds.push(item)
         } else if (typeof item === 'string') {
           const itemStr = item.toLowerCase().trim()
-          const found = candidateCards.find(c => {
-            const frontClean = (c.front || '').replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()
-            return frontClean === itemStr || (c.front || '').toLowerCase().trim() === itemStr
-          })
+          const found = candidateCards.find(c => matchesCardExpression(c, itemStr))
           if (found) {
             usedCardIds.push(found.id)
           } else {
@@ -1788,10 +2115,7 @@ If no expressions from the vocabulary bank qualify or fit, return the original t
       if (Array.isArray(rawIds)) {
         for (const item of rawIds) {
           const itemStr = String(item).toLowerCase().trim()
-          const found = candidateCards.find(c => {
-            const frontClean = (c.front || '').replace(/\*/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim()
-            return frontClean === itemStr || (c.front || '').toLowerCase().trim() === itemStr
-          })
+          const found = candidateCards.find(c => matchesCardExpression(c, itemStr))
           if (found && !finalCards.includes(found)) {
             finalCards.push(found)
           }
