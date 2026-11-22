@@ -1265,19 +1265,25 @@ export async function generateRevisionCloze(
   const url = `${sketchBaseUrl}?corpname=preloaded/ententen21_tt31&format=json&q=q${encodeURIComponent(cql_query)}&viewmode=sen&attrs=word&ctxattrs=word&refs=doc.url&asyn=0`
   
   let clean_snippet = ''
+  let lastSketchError = ''
   
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${sketchApiKey}`, 'Connection': 'close' },
-        signal: AbortSignal.timeout(180000)
+        signal: AbortSignal.timeout(25000)
       })
       
       if (response.status === 429) {
-        await new Promise(r => setTimeout(r, 5000))
-        continue
+        lastSketchError = 'Sketch Engine API rate limited (HTTP 429).'
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 4000))
+          continue
+        }
+        break
       }
       if (!response.ok) {
+        lastSketchError = `Sketch Engine API error (HTTP ${response.status}).`
         break
       }
       
@@ -1302,13 +1308,14 @@ export async function generateRevisionCloze(
         return { success: false, error: 'Sketch Engine search succeeded, but 0 sentences matched this grammar.' }
       }
     } catch (e: any) {
-      if (attempt === 1) return { success: false, error: 'Sketch Engine API crashed: ' + String(e) }
-      await new Promise(r => setTimeout(r, 3000))
+      lastSketchError = 'Sketch Engine API timeout or network error: ' + String(e)
+      if (attempt === 1) return { success: false, error: lastSketchError }
+      await new Promise(r => setTimeout(r, 2000))
     }
   }
 
   if (!clean_snippet) {
-    return { success: false, error: 'Failed to retrieve context from Sketch Engine.' }
+    return { success: false, error: lastSketchError || 'Failed to retrieve context from Sketch Engine.' }
   }
 
   const display_phrase = front.replace(/\*/g, " ")

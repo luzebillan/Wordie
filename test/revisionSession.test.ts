@@ -298,4 +298,25 @@ describe('Revision Session State Machine', () => {
     expect(computeSessionStats(statusMap)).toEqual({ memorized: 2, forgotten: 0, toReview: 0 })
     expect(curIdx >= queue.length).toBe(true) // Session all caught up!
   })
+
+  it('TC-17: Propagates updated SRS progress into re-queued secondReview card for accurate interval previews', () => {
+    const cards = [{ id: 1, front: 'F', back: 'B', type: 'Useful Expressions', state: 2, interval: 10, easeFactor: 2.5, lapses: 0, encounterCount: 3 }]
+    const { queue, statusMap } = initSessionQueue(cards)
+
+    const res = applyReviewToQueue(queue, 0, false, statusMap, {
+      state: 3,
+      interval: 0,
+      easeFactor: 2.3,
+      lapses: 1,
+      repetitions: 0
+    })
+
+    const requeued = res.nextQueue[1]
+    expect(requeued.isSecondReview).toBe(true)
+    expect(requeued.state).toBe(3)
+    expect(requeued.interval).toBe(0)
+    expect(requeued.easeFactor).toBe(2.3)
+    expect(requeued.lapses).toBe(1)
+    expect(requeued.encounterCount).toBe(4)
+  })
 })

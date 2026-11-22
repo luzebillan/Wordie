@@ -144,7 +144,12 @@ export const reviewRepo = {
     `)
     const logResult = logStmt.run(id, isCorrect ? 1 : 0, ratingStr, elapsedTime || null, isFirstTry ? 1 : 0, previousState, now.toISOString())
 
-    return { success: true, logId: logResult.lastInsertRowid }
+    return {
+      success: true,
+      logId: logResult.lastInsertRowid,
+      progress: outcome.progress,
+      nextReviewDate: nextReviewIso
+    }
   },
 
   getRevisionStats: () => {

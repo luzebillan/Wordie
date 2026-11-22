@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { DEFAULT_SHORTCUTS, matchesShortcut, formatShortcutDisplay } from '../utils/shortcuts'
+import { DEFAULT_SHORTCUTS, matchesShortcut, formatShortcutDisplay, migrateCustomShortcuts } from '../utils/shortcuts'
 
 export function useShortcuts() {
   const [shortcuts, setShortcuts] = useState<Record<string, string>>(DEFAULT_SHORTCUTS)
@@ -9,7 +9,7 @@ export function useShortcuts() {
       const settings = await window.ipcRenderer.getSettings()
       if (settings.customShortcuts) {
         try {
-          const parsed = JSON.parse(settings.customShortcuts)
+          const parsed = migrateCustomShortcuts(JSON.parse(settings.customShortcuts))
           setShortcuts({ ...DEFAULT_SHORTCUTS, ...parsed })
           return
         } catch (e) {

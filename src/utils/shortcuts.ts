@@ -18,23 +18,37 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   {
     id: 'revision.flip',
     category: 'revision',
-    name: 'Show Answer / Got it',
-    description: 'Flip card to show answer, or mark as known if answer is already shown',
+    name: 'Show Answer / Good',
+    description: 'Flip card to show answer, or rate as Good when answer is already shown',
     defaultKey: 'Space'
   },
   {
     id: 'revision.forget',
     category: 'revision',
-    name: 'Mark as Forgotten',
-    description: 'Mark the current card as forgotten (restart interval)',
+    name: 'Forgot',
+    description: 'Mark the current card as forgotten and re-queue it in this session',
     defaultKey: 'F'
+  },
+  {
+    id: 'revision.hard',
+    category: 'revision',
+    name: 'Hard',
+    description: 'Rate the current card as Hard',
+    defaultKey: 'H'
+  },
+  {
+    id: 'revision.easy',
+    category: 'revision',
+    name: 'Easy',
+    description: 'Rate the current card as Easy',
+    defaultKey: 'E'
   },
   {
     id: 'revision.edit',
     category: 'revision',
     name: 'Edit Card',
     description: 'Enter inline editing mode for the current review card',
-    defaultKey: 'E'
+    defaultKey: 'Ctrl+E'
   },
   {
     id: 'revision.save',
@@ -293,4 +307,17 @@ export function formatShortcutDisplay(combo: string): string {
       return normalizeKey(p)
     })
     .join(isMac ? '' : ' + ')
+}
+
+/**
+ * Migrates persisted customShortcuts from pre-v2.3.1 versions where revision.edit
+ * defaulted to 'E' (which now defaults to revision.easy). Only rewrites revision.edit
+ * when revision.easy was not yet configured by the user.
+ */
+export function migrateCustomShortcuts(parsed: Record<string, string>): Record<string, string> {
+  const migrated = { ...parsed }
+  if (!('revision.easy' in migrated) && migrated['revision.edit'] && normalizeKey(migrated['revision.edit']) === 'E') {
+    migrated['revision.edit'] = DEFAULT_SHORTCUTS['revision.edit']
+  }
+  return migrated
 }

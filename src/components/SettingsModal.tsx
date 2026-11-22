@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import * as Prompts from '../constants/prompts'
-import { SHORTCUT_CATEGORIES, SHORTCUT_DEFINITIONS, DEFAULT_SHORTCUTS, parseKeyboardEvent, formatShortcutDisplay } from '../utils/shortcuts'
+import { SHORTCUT_CATEGORIES, SHORTCUT_DEFINITIONS, DEFAULT_SHORTCUTS, parseKeyboardEvent, formatShortcutDisplay, migrateCustomShortcuts } from '../utils/shortcuts'
 import wordieLogo from '../assets/icon.png'
 import { GlossaryTaxonomyManager } from './GlossaryTaxonomyManager'
 import { Modal, ModalHeader, ModalBody } from './ui/Modal'
@@ -35,8 +35,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [srsReward, setSrsReward] = useState('2.5')
   const [srsPenalty, setSrsPenalty] = useState('0.2')
   const [rewriteDivider, setRewriteDivider] = useState('20')
-  const [easyThreshold, setEasyThreshold] = useState('2')
-  const [goodThreshold, setGoodThreshold] = useState('30')
   
   // Prompts State
   const [promptGlossary, setPromptGlossary] = useState('')
@@ -138,8 +136,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (settings.srsReward) setSrsReward(settings.srsReward)
         if (settings.srsPenalty) setSrsPenalty(settings.srsPenalty)
         if (settings.rewriteDivider) setRewriteDivider(settings.rewriteDivider)
-        if (settings.easyThreshold) setEasyThreshold(settings.easyThreshold)
-        if (settings.goodThreshold) setGoodThreshold(settings.goodThreshold)
         setPromptGlossary(settings.promptGlossary || Prompts.DEFAULT_PROMPT_GLOSSARY)
         const legacyDailyPrompt = settings.promptDailyWord && settings.promptDailyWord.includes('Output ONLY the concise English counterpart directly on a single line')
         setPromptDailyWord(legacyDailyPrompt ? Prompts.DEFAULT_PROMPT_DAILY_WORD : (settings.promptDailyWord || Prompts.DEFAULT_PROMPT_DAILY_WORD))
@@ -156,7 +152,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         setPromptSynonyms(settings.promptSynonyms || Prompts.DEFAULT_PROMPT_SYNONYMS)
         if (settings.customShortcuts) {
           try {
-            setShortcuts({ ...DEFAULT_SHORTCUTS, ...JSON.parse(settings.customShortcuts) })
+            setShortcuts({ ...DEFAULT_SHORTCUTS, ...migrateCustomShortcuts(JSON.parse(settings.customShortcuts)) })
           } catch (e) {
             setShortcuts(DEFAULT_SHORTCUTS)
           }
@@ -731,35 +727,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                             className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
                           />
                           <p className="text-[11px] text-gray-400 mt-1">Multiplier when clicking Forget (default 0.2).</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Easy Response Threshold (s)
-                          </label>
-                          <input
-                            type="text"
-                            value={easyThreshold}
-                            onChange={(e) => setEasyThreshold(e.target.value)}
-                            onBlur={() => autoSave('easyThreshold', easyThreshold)}
-                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
-                          />
-                          <p className="text-[11px] text-gray-400 mt-1">If response is under this (seconds), rates as Easy.</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Good Response Threshold (s)
-                          </label>
-                          <input
-                            type="text"
-                            value={goodThreshold}
-                            onChange={(e) => setGoodThreshold(e.target.value)}
-                            onBlur={() => autoSave('goodThreshold', goodThreshold)}
-                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all dark:text-gray-200"
-                          />
-                          <p className="text-[11px] text-gray-400 mt-1">If response is under this (seconds), rates as Good. Above rates Hard.</p>
                         </div>
                       </div>
 

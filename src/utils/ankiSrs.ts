@@ -142,3 +142,47 @@ function applyFuzz(interval: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+/**
+ * Formats an interval in days into a compact Anki-style label (e.g. "1d", "4d", "1.5mo", "1.2y").
+ */
+export function formatIntervalDays(days: number): string {
+  if (days < 30) return `${days}d`;
+  if (days < 365) {
+    const months = parseFloat((days / 30).toFixed(1));
+    return `${months}mo`;
+  }
+  const years = parseFloat((days / 365).toFixed(1));
+  return `${years}y`;
+}
+
+/**
+ * Deterministic (fuzz-free) preview of the next review interval for each Anki rating (1-4),
+ * mirroring calculateAnkiReview so rating buttons can display stable interval hints.
+ */
+export function previewAnkiIntervals(current: Partial<CardProgress>): Record<AnkiRating, string> {
+  const state: CardState = current.state ?? 0;
+  const interval = current.interval ?? 0;
+  const easeFactor = current.easeFactor === undefined || current.easeFactor < 1.3 ? 2.5 : current.easeFactor;
+
+  const isLearning = state === 0 || state === 1 || state === 3;
+  if (isLearning) {
+    return {
+      1: '1m',
+      2: '5m',
+      3: '1d',
+      4: '4d'
+    };
+  }
+
+  const hardIvl = Math.max(interval + 1, Math.round(interval * 1.2));
+  const goodIvl = Math.max(interval + 1, Math.round(interval * easeFactor));
+  const easyIvl = Math.max(interval + 1, Math.round(interval * (easeFactor + 0.15) * 1.3));
+
+  return {
+    1: '10m',
+    2: formatIntervalDays(hardIvl),
+    3: formatIntervalDays(goodIvl),
+    4: formatIntervalDays(easyIvl)
+  };
+}
+

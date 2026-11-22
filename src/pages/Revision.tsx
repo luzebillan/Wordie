@@ -13,9 +13,13 @@ import {
   syncCardTextInQueue,
   createSessionItem
 } from '../utils/revisionSession'
+import { previewAnkiIntervals, type CardState } from '../utils/ankiSrs'
+import { ClozePrefetcher, type PrefetchTarget } from '../utils/clozePrefetcher'
 import { useShortcuts } from '../hooks/useShortcuts'
 import { TaxonomyTagBadge } from '../components/TaxonomyTagBadge'
 import { getActiveModalCount } from '../components/ui/Modal'
+
+type AnkiRatingKey = 'again' | 'hard' | 'good' | 'easy'
 
 interface RevisionProps {
   specificCardId?: number
@@ -70,7 +74,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
   const [undoStack, setUndoStack] = useState<ReviewAction[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const sessionInitializedRef = useRef(false)
-  const clozeReqIdRef = useRef(0)
+  const isSubmittingReviewRef = useRef(false)
 
   // Single card mode state (when viewing/reviewing a specific card from library/search)
   const [singleCard, setSingleCard] = useState<SessionCardItem | null>(null)
@@ -83,26 +87,31 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
   const [editFront, setEditFront] = useState('')
   const [editBack, setEditBack] = useState('')
 
-  const [clozeContext, setClozeContext] = useState<string>('')
-  const [clozeLoading, setClozeLoading] = useState(false)
-  const [clozeError, setClozeError] = useState<string | null>(null)
-
   // Reverse State for Glossary and Ready Versions
   const [isReversed, setIsReversed] = useState<boolean>(false)
   const [isShuffling, setIsShuffling] = useState(false)
 
-  // Timer & Threshold State
-  const [timerStartTime, setTimerStartTime] = useState<number | null>(null)
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0)
-  const [liveElapsedMs, setLiveElapsedMs] = useState<number>(0)
-  const [easyThreshold, setEasyThreshold] = useState<number>(2)
-  const [goodThreshold, setGoodThreshold] = useState<number>(30)
+  // Background Cloze Prefetcher (Strategy B: starts on first entry to Revision)
+  const prefetcherRef = useRef<ClozePrefetcher | null>(null)
+  if (!prefetcherRef.current) {
+    prefetcherRef.current = new ClozePrefetcher((payload) =>
+      window.ipcRenderer.generateRevisionCloze(payload)
+    )
+  }
+  const [, setPrefetchTick] = useState(0)
+  const waitedSessionKeyRef = useRef<string | null>(null)
+  const chimePlayedKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
-    window.ipcRenderer.getSettings().then(settings => {
-      if (settings.easyThreshold) setEasyThreshold(parseFloat(settings.easyThreshold))
-      if (settings.goodThreshold) setGoodThreshold(parseFloat(settings.goodThreshold))
+    const prefetcher = prefetcherRef.current
+    if (!prefetcher) return
+    const unsubscribe = prefetcher.subscribe(() => {
+      setPrefetchTick(t => t + 1)
     })
+    return () => {
+      unsubscribe()
+      prefetcher.dispose()
+    }
   }, [])
 
   const [initialMemorized, setInitialMemorized] = useState(0)
@@ -232,7 +241,79 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     ? singleCard 
     : (currentIndex < sessionQueue.length ? sessionQueue[currentIndex] : null)
 
-  // Reset card states and trigger Cloze whenever active card presentation instance changes
+  // Start background prefetcher when Revision tab becomes active (Strategy B)
+  useEffect(() => {
+    if (isActive) {
+      prefetcherRef.current?.start()
+    }
+  }, [isActive])
+
+  // Sync remaining Useful Expressions targets to the prefetcher
+  useEffect(() => {
+    const remainingUeTargets: PrefetchTarget[] = sessionQueue
+      .slice(currentIndex)
+      .filter(item => item.type === 'Useful Expressions')
+      .map(item => ({
+        sessionKey: item._sessionKey,
+        cardId: item.id,
+        front: item.front,
+        back: item.back,
+        isSecondReview: item.isSecondReview
+      }))
+    const activeUeKey =
+      !specificCardId && currentCard?.type === 'Useful Expressions'
+        ? currentCard._sessionKey
+        : null
+    prefetcherRef.current?.syncTargets(remainingUeTargets, activeUeKey)
+  }, [sessionQueue, currentIndex, specificCardId, currentCard?._sessionKey])
+
+  // Single-card mode on-demand cloze fetch (isolated from main session queue)
+  useEffect(() => {
+    if (isActive && specificCardId && singleCard && singleCard.type === 'Useful Expressions') {
+      prefetcherRef.current?.fetchOnDemand({
+        sessionKey: singleCard._sessionKey,
+        cardId: singleCard.id,
+        front: singleCard.front,
+        back: singleCard.back
+      })
+    }
+  }, [isActive, specificCardId, singleCard?._sessionKey])
+
+  const prefetchProgress = prefetcherRef.current?.getProgress() || {
+    total: 0,
+    ready: 0,
+    failed: 0,
+    loading: 0,
+    paused: false,
+    pauseReason: null,
+    started: false
+  }
+
+  const activeClozeEntry =
+    currentCard?.type === 'Useful Expressions'
+      ? prefetcherRef.current?.getEntry(currentCard._sessionKey)
+      : undefined
+
+  const clozeContext =
+    currentCard?.type === 'Useful Expressions' && activeClozeEntry?.status === 'ready'
+      ? (activeClozeEntry.text || '')
+      : ''
+
+  const clozeLoading =
+    currentCard?.type === 'Useful Expressions'
+      ? (activeClozeEntry?.status === 'loading' || (!activeClozeEntry && isActive && !prefetchProgress.paused))
+      : false
+
+  const clozeError =
+    currentCard?.type === 'Useful Expressions'
+      ? (activeClozeEntry?.status === 'error'
+          ? (activeClozeEntry.error || 'Failed to generate cloze context.')
+          : (!activeClozeEntry && prefetchProgress.paused
+              ? (prefetchProgress.pauseReason || 'Background cloze generation paused due to API errors.')
+              : null))
+      : null
+
+  // Reset card states whenever active card presentation instance changes
   useEffect(() => {
     if (!currentCard) return
 
@@ -255,113 +336,62 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     setIsReversed(shouldReverse)
 
     setShowAnswer(false)
-    setElapsedSeconds(0)
-    setLiveElapsedMs(0)
     setIsEditingMode(false)
 
+    // Record whether user actually has to wait for this card's cloze (only chime in that case)
     if (currentCard.type === 'Useful Expressions') {
-      setClozeContext('')
-      setClozeError(null)
-      setClozeLoading(true)
-      setTimerStartTime(null) // Timing has NOT started yet during generation
-
-      const reqId = ++clozeReqIdRef.current
-
-      window.ipcRenderer.generateRevisionCloze({ front: currentCard.front, back: currentCard.back })
-        .then(res => {
-          if (reqId !== clozeReqIdRef.current) return
-          setClozeLoading(false)
-          if (res.success && res.result) {
-            setClozeContext(res.result)
-            if (isActive) {
-              playClozeReadySound()
-            }
-            setTimerStartTime(Date.now())
-            setLiveElapsedMs(0)
-          } else {
-            setClozeError(res.error || 'Failed to generate cloze context.')
-            setTimerStartTime(Date.now())
-            setLiveElapsedMs(0)
-          }
-        })
-        .catch((err: any) => {
-          if (reqId !== clozeReqIdRef.current) return
-          setClozeLoading(false)
-          setClozeError(err?.message || 'Failed to generate cloze context.')
-          setTimerStartTime(Date.now())
-          setLiveElapsedMs(0)
-        })
+      const existing = prefetcherRef.current?.getEntry(currentCard._sessionKey)
+      if (!existing || existing.status !== 'ready') {
+        waitedSessionKeyRef.current = currentCard._sessionKey
+      } else {
+        waitedSessionKeyRef.current = null
+      }
     } else {
-      setClozeContext('')
-      setClozeError(null)
-      setClozeLoading(false)
-      setTimerStartTime(Date.now())
-      setLiveElapsedMs(0)
+      waitedSessionKeyRef.current = null
     }
   }, [currentCard?._sessionKey])
 
-  const handleRetryCloze = async () => {
-    if (!currentCard) return
-    setClozeLoading(true)
-    setClozeError(null)
-    setTimerStartTime(null)
-    setLiveElapsedMs(0)
-    const reqId = ++clozeReqIdRef.current
-    try {
-      const res = await window.ipcRenderer.generateRevisionCloze({ front: currentCard.front, back: currentCard.back })
-      if (reqId !== clozeReqIdRef.current) return
-      if (res.success && res.result) {
-        setClozeContext(res.result)
-        if (isActive) playClozeReadySound()
-        setTimerStartTime(Date.now())
-        setLiveElapsedMs(0)
-      } else {
-        setClozeError(res.error || 'Failed to generate cloze context.')
-        setTimerStartTime(Date.now())
-      }
-    } catch (err: any) {
-      if (reqId !== clozeReqIdRef.current) return
-      setClozeError(err?.message || 'Failed to generate cloze context.')
-      setTimerStartTime(Date.now())
-    } finally {
-      if (reqId === clozeReqIdRef.current) {
-        setClozeLoading(false)
-      }
+  // Play chime only when a card the user was actively waiting on becomes ready
+  useEffect(() => {
+    if (
+      isActive &&
+      currentCard?.type === 'Useful Expressions' &&
+      activeClozeEntry?.status === 'ready' &&
+      waitedSessionKeyRef.current === currentCard._sessionKey &&
+      chimePlayedKeyRef.current !== currentCard._sessionKey
+    ) {
+      chimePlayedKeyRef.current = currentCard._sessionKey
+      waitedSessionKeyRef.current = null
+      playClozeReadySound()
     }
+  }, [isActive, currentCard?._sessionKey, activeClozeEntry?.status])
+
+  const intervalPreviews = useMemo(() => {
+    if (!currentCard) return null
+    return previewAnkiIntervals({
+      state: (currentCard.state ?? 0) as CardState,
+      interval: currentCard.interval ?? 0,
+      easeFactor: currentCard.easeFactor ?? 2.5,
+      lapses: currentCard.lapses ?? 0,
+      repetitions: currentCard.repetitions ?? 0
+    })
+  }, [currentCard?._sessionKey, currentCard?.state, currentCard?.interval, currentCard?.easeFactor])
+
+  const handleRetryCloze = () => {
+    if (!currentCard || currentCard.type !== 'Useful Expressions') return
+    waitedSessionKeyRef.current = currentCard._sessionKey
+    chimePlayedKeyRef.current = null
+    prefetcherRef.current?.retry({
+      sessionKey: currentCard._sessionKey,
+      cardId: currentCard.id,
+      front: currentCard.front,
+      back: currentCard.back,
+      isSecondReview: currentCard.isSecondReview
+    })
   }
 
-  // Live Timer Effect
-  useEffect(() => {
-    let intervalId: any
-    if (isActive && timerStartTime !== null && !showAnswer && !isEditingMode && !clozeLoading) {
-      intervalId = setInterval(() => {
-        setLiveElapsedMs(Date.now() - timerStartTime)
-      }, 50)
-    }
-    return () => clearInterval(intervalId)
-  }, [timerStartTime, showAnswer, isEditingMode, clozeLoading, isActive])
-
-  // Reset timer when switching back to the revision tab if card is already ready
-  useEffect(() => {
-    if (isActive && !showAnswer && !isEditingMode && !clozeLoading && timerStartTime !== null) {
-      setTimerStartTime(Date.now())
-      setLiveElapsedMs(0)
-    }
-  }, [isActive])
-
-  const currentElapsedSeconds = liveElapsedMs / 1000
-
-  const getRatingForTime = (timeInSecs: number) => {
-    if (timeInSecs <= easyThreshold) return 'easy'
-    if (timeInSecs <= goodThreshold) return 'good'
-    return 'hard'
-  }
-
-  const getRatingBadgeUI = (timeInSecs: number) => {
-    const r = getRatingForTime(timeInSecs)
-    if (r === 'easy') return { label: 'Easy', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400', icon: '⚡' }
-    if (r === 'good') return { label: 'Good', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400', icon: '👍' }
-    return { label: 'Hard', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400', icon: '🐢' }
+  const handleResumePrefetch = () => {
+    prefetcherRef.current?.resume()
   }
 
   const handleSkipCard = () => {
@@ -394,41 +424,43 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
   const handleShowAnswer = () => {
     if (clozeLoading) return
     setShowAnswer(true)
-    const duration = timerStartTime ? Math.max(0.1, (Date.now() - timerStartTime) / 1000) : 0.1
-    setElapsedSeconds(duration)
   }
 
-  const handleReview = async (isCorrect: boolean) => {
-    if (!currentCard || clozeLoading) return
+  const handleReview = async (rating: AnkiRatingKey) => {
+    if (!currentCard || clozeLoading || isSubmittingReviewRef.current) return
+    isSubmittingReviewRef.current = true
 
-    // Save any inline edits before moving on
-    if (editFront !== currentCard.front || editBack !== currentCard.back) {
-      await window.ipcRenderer.updateCardText(currentCard.id, editFront, editBack)
-      setSessionQueue(prev => syncCardTextInQueue(prev, currentCard.id, editFront, editBack))
-    }
+    try {
+      // Save any inline edits before moving on
+      if (editFront !== currentCard.front || editBack !== currentCard.back) {
+        await window.ipcRenderer.updateCardText(currentCard.id, editFront, editBack)
+        setSessionQueue(prev => syncCardTextInQueue(prev, currentCard.id, editFront, editBack))
+        prefetcherRef.current?.invalidateCard(currentCard.id)
+      }
 
-    const timeToRecord = elapsedSeconds > 0 ? elapsedSeconds : (timerStartTime ? Math.max(0.1, (Date.now() - timerStartTime) / 1000) : 0.1)
+      const isCorrect = rating !== 'again'
 
-    if (specificCardId) {
-      const rating = isCorrect ? getRatingForTime(timeToRecord) : 'again'
-      await window.ipcRenderer.reviewCard(currentCard.id, isCorrect, rating, timeToRecord)
-      setSingleCardFinished(true)
+      if (specificCardId) {
+        await window.ipcRenderer.reviewCard(currentCard.id, isCorrect, rating)
+        setSingleCardFinished(true)
+        window.dispatchEvent(new CustomEvent('stats-updated', { detail: { source: 'revision-session' } }))
+        return
+      }
+
+      const reviewRes = await window.ipcRenderer.reviewCard(currentCard.id, isCorrect, rating)
+
+      // Apply review to state machine (pass updated SRS progress for accurate second-review previews)
+      const res = applyReviewToQueue(sessionQueue, currentIndex, isCorrect, cardStatusMap, reviewRes?.progress)
+      setSessionQueue(res.nextQueue)
+      setCurrentIndex(res.nextIndex)
+      setCardStatusMap(res.nextStatusMap)
+      setUndoStack(prev => [...prev, res.action])
+
+      // Notify other components (Sidebar, Dashboard) to refresh stats
       window.dispatchEvent(new CustomEvent('stats-updated', { detail: { source: 'revision-session' } }))
-      return
+    } finally {
+      isSubmittingReviewRef.current = false
     }
-
-    const rating = isCorrect ? getRatingForTime(timeToRecord) : 'again'
-    await window.ipcRenderer.reviewCard(currentCard.id, isCorrect, rating, timeToRecord)
-
-    // Apply review to state machine
-    const res = applyReviewToQueue(sessionQueue, currentIndex, isCorrect, cardStatusMap)
-    setSessionQueue(res.nextQueue)
-    setCurrentIndex(res.nextIndex)
-    setCardStatusMap(res.nextStatusMap)
-    setUndoStack(prev => [...prev, res.action])
-
-    // Notify other components (Sidebar, Dashboard) to refresh stats
-    window.dispatchEvent(new CustomEvent('stats-updated', { detail: { source: 'revision-session' } }))
   }
 
   const handleUndo = async () => {
@@ -448,17 +480,24 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
 
   const handleSaveEdit = async () => {
     if (!currentCard) return
+    const textChanged = editFront !== currentCard.front || editBack !== currentCard.back
     await window.ipcRenderer.updateCardText(currentCard.id, editFront, editBack)
     setIsEditingMode(false)
-    if (!showAnswer) {
-      setTimerStartTime(Date.now())
-      setLiveElapsedMs(0)
-    }
     // Update local state so it reflects immediately
     if (specificCardId) {
       setSingleCard((prev: any) => prev ? { ...prev, front: editFront, back: editBack } : prev)
     } else {
       setSessionQueue(prev => syncCardTextInQueue(prev, currentCard.id, editFront, editBack))
+    }
+    if (textChanged && currentCard.type === 'Useful Expressions') {
+      prefetcherRef.current?.invalidateCard(currentCard.id)
+      prefetcherRef.current?.retry({
+        sessionKey: currentCard._sessionKey,
+        cardId: currentCard.id,
+        front: editFront,
+        back: editBack,
+        isSecondReview: currentCard.isSecondReview
+      })
     }
   }
 
@@ -500,10 +539,16 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
         e.preventDefault()
         if (isEditingMode || clozeLoading) return
         if (!showAnswer) handleShowAnswer()
-        else handleReview(true)
+        else handleReview('good')
       } else if (isActionPressed('revision.forget', e) && showAnswer && !isEditingMode && !clozeLoading) {
         e.preventDefault()
-        handleReview(false)
+        handleReview('again')
+      } else if (isActionPressed('revision.hard', e) && showAnswer && !isEditingMode && !clozeLoading) {
+        e.preventDefault()
+        handleReview('hard')
+      } else if (isActionPressed('revision.easy', e) && showAnswer && !isEditingMode && !clozeLoading) {
+        e.preventDefault()
+        handleReview('easy')
       } else if (isActionPressed('revision.edit', e) && !isEditingMode && !clozeLoading) {
         e.preventDefault()
         setIsEditingMode(true)
@@ -529,7 +574,7 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showAnswer, isEditingMode, clozeLoading, currentCard, editFront, editBack, specificCardId, isActive, timerStartTime, elapsedSeconds, currentIndex, sessionQueue, undoStack, isActionPressed])
+  }, [showAnswer, isEditingMode, clozeLoading, currentCard, editFront, editBack, specificCardId, isActive, currentIndex, sessionQueue, undoStack, isActionPressed])
 
   const renderCardFront = () => {
     if (!currentCard) return null
@@ -729,11 +774,47 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       {/* Progress Bar */}
       {!specificCardId && (
         <div className="w-full mb-8">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex-1 flex items-center gap-6 text-xs font-medium text-gray-500 justify-center pl-7">
+          <div className="flex items-center justify-between mb-2.5 gap-3">
+            <div className="flex-1 flex items-center gap-6 text-xs font-medium text-gray-500 justify-center pl-7 flex-wrap">
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-800 dark:bg-gray-200"></span> Reviewed {stats.memorized}</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400"></span> Second Review {stats.forgotten}</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700"></span> To Review {stats.toReview}</span>
+              {prefetchProgress.total > 0 && (
+                <span
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] ${
+                    prefetchProgress.paused
+                      ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/40'
+                      : prefetchProgress.ready + prefetchProgress.failed < prefetchProgress.total
+                        ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-300 border-purple-200 dark:border-purple-800/40'
+                        : 'bg-gray-50 dark:bg-gray-800/60 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700'
+                  }`}
+                  title={prefetchProgress.pauseReason || 'Background Useful Expressions cloze pre-generation'}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      prefetchProgress.paused
+                        ? 'bg-amber-500'
+                        : prefetchProgress.ready + prefetchProgress.failed < prefetchProgress.total
+                          ? 'bg-purple-500 animate-pulse'
+                          : prefetchProgress.failed > 0
+                            ? 'bg-amber-400'
+                            : 'bg-emerald-500'
+                    }`}
+                  />
+                  <span>
+                    Cloze {prefetchProgress.ready}/{prefetchProgress.total}
+                    {prefetchProgress.failed > 0 ? ` (${prefetchProgress.failed} failed)` : ''}
+                  </span>
+                  {prefetchProgress.paused && (
+                    <button
+                      onClick={handleResumePrefetch}
+                      className="ml-1 underline font-semibold hover:text-amber-900 dark:hover:text-amber-100"
+                    >
+                      Resume
+                    </button>
+                  )}
+                </span>
+              )}
             </div>
             <button 
               onClick={handleShuffle} 
@@ -787,29 +868,11 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
           
           {/* The Card */}
           <div className="w-full bg-white dark:bg-[#1f2028] p-10 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col min-h-[300px] relative mb-6">
-            
-            {/* Timer Badge */}
-            {!clozeLoading && timerStartTime !== null && (
-              <div className={`absolute top-4 left-4 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wider transition-colors duration-300 ${getRatingBadgeUI(showAnswer ? elapsedSeconds : currentElapsedSeconds).color}`}>
-                <span className={showAnswer ? "" : "animate-pulse"}>{getRatingBadgeUI(showAnswer ? elapsedSeconds : currentElapsedSeconds).icon}</span>
-                <span className="font-mono">{(showAnswer ? elapsedSeconds : currentElapsedSeconds).toFixed(1)}s</span>
-              </div>
-            )}
 
             {/* Edit Button */}
             {!clozeLoading && (
               <button
-                onClick={() => {
-                  if (isEditingMode) {
-                    setIsEditingMode(false)
-                    if (!showAnswer) {
-                      setTimerStartTime(Date.now())
-                      setLiveElapsedMs(0)
-                    }
-                  } else {
-                    setIsEditingMode(true)
-                  }
-                }}
+                onClick={() => setIsEditingMode(prev => !prev)}
                 className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full text-gray-400 transition-colors"
                 title={`Edit Card (${getShortcutDisplay('revision.edit')})`}
               >
@@ -885,25 +948,55 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
             )}
           </div>
 
-          {/* Action Buttons Below Card */}
+          {/* Anki 4-Button Rating Bar */}
           {showAnswer && !isEditingMode && (
-            <div className="flex gap-4 animate-in slide-in-from-bottom-4 duration-300">
+            <div className="grid grid-cols-4 gap-3 w-full max-w-2xl animate-in slide-in-from-bottom-4 duration-300">
               <button
-                onClick={() => handleReview(false)}
-                className="px-8 py-3 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded-full font-bold text-base transition-colors flex items-center gap-2 shadow-sm"
+                onClick={() => handleReview('again')}
+                className="px-4 py-3 bg-red-50 dark:bg-red-900/15 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-900/40 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
               >
-                <span className="text-lg leading-none">×</span> Forget ({getShortcutDisplay('revision.forget')})
+                <span className="font-bold text-sm">
+                  Forgot <span className="text-xs font-medium opacity-75">({getShortcutDisplay('revision.forget')})</span>
+                </span>
+                {intervalPreviews && (
+                  <span className="text-[11px] font-mono opacity-75">{intervalPreviews[1]}</span>
+                )}
               </button>
+
               <button
-                onClick={() => handleReview(true)}
-                className={`px-8 py-3 rounded-full font-bold text-base transition-colors flex items-center gap-2 shadow-sm ${
-                  getRatingForTime(elapsedSeconds) === 'easy' ? 'bg-emerald-500 hover:bg-emerald-600 text-white' :
-                  getRatingForTime(elapsedSeconds) === 'good' ? 'bg-blue-500 hover:bg-blue-600 text-white' :
-                  'bg-amber-500 hover:bg-amber-600 text-white'
-                }`}
+                onClick={() => handleReview('hard')}
+                className="px-4 py-3 bg-amber-50 dark:bg-amber-900/15 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900/40 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
               >
-                <span className="text-lg leading-none">√</span> 
-                Got it ({getShortcutDisplay('revision.flip')})
+                <span className="font-bold text-sm">
+                  Hard <span className="text-xs font-medium opacity-75">({getShortcutDisplay('revision.hard')})</span>
+                </span>
+                {intervalPreviews && (
+                  <span className="text-[11px] font-mono opacity-75">{intervalPreviews[2]}</span>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleReview('good')}
+                className="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white border border-blue-600/30 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
+              >
+                <span className="font-bold text-sm">
+                  Good <span className="text-xs font-medium opacity-85">({getShortcutDisplay('revision.flip')})</span>
+                </span>
+                {intervalPreviews && (
+                  <span className="text-[11px] font-mono opacity-85">{intervalPreviews[3]}</span>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleReview('easy')}
+                className="px-4 py-3 bg-emerald-50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
+              >
+                <span className="font-bold text-sm">
+                  Easy <span className="text-xs font-medium opacity-75">({getShortcutDisplay('revision.easy')})</span>
+                </span>
+                {intervalPreviews && (
+                  <span className="text-[11px] font-mono opacity-75">{intervalPreviews[4]}</span>
+                )}
               </button>
             </div>
           )}

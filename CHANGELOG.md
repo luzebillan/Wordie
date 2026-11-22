@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [v2.3.1] - 2026-11-22
+
+Wordie v2.3.1 针对 **Revision 复习模块** 完成了两项高频体验改进：**取消计时器并回归原生 Anki 四档评分（Forgot / Hard / Good / Easy）与快捷键体系**，以及 **Useful Expressions 完形填空（Cloze）后台预生成队列与失败隔离机制**。
+
+### 🚀 核心更新与体验改进
+
+#### 1. 回归原生 Anki 四档评分与快捷键体系 (Anki 4-Button Rating)
+- **取消计时自动评级**：移除复习卡片上的实时计时器与耗时评级徽章，同步清理设置页中不再使用的 `Easy / Good Response Threshold (s)` 阈值配置。
+- **原生四档按钮与下次间隔预览**：翻面后提供 `Forgot (F)`、`Hard (H)`、`Good (Space)`、`Easy (E)` 四个明确评分按钮，并基于 Anki SM-2 算法实时展示每档对应的预计下次复习间隔（如 `1m`、`5m`、`1d`、`4d`、`1.1mo`）。
+- **快捷键解冲突与平滑迁移**：为避免与 `Easy (E)` 冲突，行内编辑默认快捷键 `revision.edit` 调整为 `Ctrl+E`；针对已有自定义快捷键配置的老用户，加载时自动将未显式重绑的旧默认 `E` 迁移至 `Ctrl+E`，并支持在设置页自由自定义全部四档评分快捷键。
+- **二次复习状态同步**：标记 `Forgot` 重入本轮队列的卡片会同步最新 SRS 状态，确保二次复习时按钮上的间隔预览准确反映 Relearning 阶段。
+
+#### 2. Useful Expressions Cloze 后台预生成与异常隔离 (Background Cloze Prefetcher)
+- **进入 Revision 后单并发后台预生成**：首次进入 Revision 页签时启动后台单并发（`concurrency = 1`）预生成队列，按顺序提前为队列中的 `Useful Expressions` 生成完形填空并缓存在内存中；不进入 Revision 时零 API 消耗。
+- **无缝支持顺序复习、Shuffle 洗牌与 Forgot 重入**：
+  - 无论顺序刷卡还是 `Ctrl+Tab` 洗牌，已预生成的卡片均瞬时展示，不再卡顿等待；
+  - 若恰好切到尚未预生成的卡片，系统自动将其**插队为最高优先级**立即请求（不阻塞于后台慢请求），且仅在用户实际等待当前卡片时播放提示音；
+  - 标记 `Forgot` 重新进入队列的卡片自动分配全新队列标识，后台自动为其生成全新的语境例句；`Ctrl+Z` 撤销则直接命中旧缓存不重复扣费。
+- **失败隔离与熔断保护**：
+  - 将 Sketch Engine 单次请求超时由 180 秒收紧至 25 秒并透传 HTTP 状态码，避免单卡超时长期拖死后台队列；
+  - `0 sentences matched` 归类为单卡终止失败，直接跳过继续预生成后续卡片；单次网络/超时波动同样跳过不卡队；
+  - 检测到 API Key 缺失、额度不足（401/402/403）或连续 3 次网络失败时自动暂停后台预生成（防止空烧额度），顶部进度胶囊清晰展示 `Cloze ready/total` 状态并支持一键 `Resume` 或单卡 `Retry`，绝不阻塞正常复习。
+
+#### 3. 工程质量保证 (Tests & Typecheck)
+- 新增 `test/ankiSrs.test.ts` 与 `test/clozePrefetcher.test.ts` 并扩充 `test/shortcuts.test.ts`、`test/revisionSession.test.ts`，全量 15 个测试套件、269 项自动化测试 100% 通过，TypeScript 编译与 Vite 生产构建 0 错误。
+
+---
+
 ## [v2.3.0] - 2026-10-15
 
 Wordie v2.3.0 重点完成了 **Practice Rewrite 多通道精准召回流水线（Multi-Channel RAG Engine）系统性重构**、**全词库类型（Useful Expressions、Daily Words、Glossary）改写打通与规范化英文目标提取**，以及 **Expression Matcher 多态正则防护与全局搜索语法增强**。

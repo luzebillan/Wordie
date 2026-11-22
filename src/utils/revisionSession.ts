@@ -81,7 +81,14 @@ export function applyReviewToQueue(
   queue: SessionCardItem[],
   currentIndex: number,
   isCorrect: boolean,
-  statusMap: Map<number, CardReviewStatus>
+  statusMap: Map<number, CardReviewStatus>,
+  updatedProgress?: {
+    state?: number
+    interval?: number
+    easeFactor?: number
+    lapses?: number
+    repetitions?: number
+  }
 ): {
   nextQueue: SessionCardItem[]
   nextIndex: number
@@ -108,6 +115,14 @@ export function applyReviewToQueue(
   if (!isCorrect) {
     const nextItem: SessionCardItem = {
       ...currentCard,
+      ...(updatedProgress ? {
+        state: updatedProgress.state ?? currentCard.state,
+        interval: updatedProgress.interval ?? currentCard.interval,
+        easeFactor: updatedProgress.easeFactor ?? currentCard.easeFactor,
+        lapses: updatedProgress.lapses ?? currentCard.lapses,
+        repetitions: updatedProgress.repetitions ?? currentCard.repetitions
+      } : {}),
+      encounterCount: (currentCard.encounterCount || 0) + 1,
       _sessionKey: generateSessionKey(currentCard.id),
       isSecondReview: true
     }

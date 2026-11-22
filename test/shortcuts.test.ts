@@ -5,7 +5,8 @@ import {
   normalizeKey,
   parseKeyboardEvent,
   matchesShortcut,
-  formatShortcutDisplay
+  formatShortcutDisplay,
+  migrateCustomShortcuts
 } from '../src/utils/shortcuts'
 
 describe('Shortcuts System - Revision Shuffle & Key Utilities', () => {
@@ -208,5 +209,42 @@ describe('Shortcuts System - Revision Shuffle & Key Utilities', () => {
 
     expect(matchesShortcut(ctrlQEvent, 'Ctrl+Q')).toBe(true)
     expect(matchesShortcut(ctrlQEvent, 'ctrl+q')).toBe(true)
+  })
+
+  it('TC-09: registers Anki 4-grade shortcuts (F/H/Space/E) and rebinds revision.edit to Ctrl+E', () => {
+    expect(DEFAULT_SHORTCUTS['revision.flip']).toBe('Space')
+    expect(DEFAULT_SHORTCUTS['revision.forget']).toBe('F')
+    expect(DEFAULT_SHORTCUTS['revision.hard']).toBe('H')
+    expect(DEFAULT_SHORTCUTS['revision.easy']).toBe('E')
+    expect(DEFAULT_SHORTCUTS['revision.edit']).toBe('Ctrl+E')
+
+    const plainE = {
+      key: 'e',
+      code: 'KeyE',
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false
+    } as KeyboardEvent
+    const ctrlE = { ...plainE, ctrlKey: true } as KeyboardEvent
+
+    expect(matchesShortcut(plainE, DEFAULT_SHORTCUTS['revision.easy'])).toBe(true)
+    expect(matchesShortcut(plainE, DEFAULT_SHORTCUTS['revision.edit'])).toBe(false)
+    expect(matchesShortcut(ctrlE, DEFAULT_SHORTCUTS['revision.edit'])).toBe(true)
+    expect(matchesShortcut(ctrlE, DEFAULT_SHORTCUTS['revision.easy'])).toBe(false)
+  })
+
+  it('TC-10: migrateCustomShortcuts migrates legacy revision.edit=E without overriding explicit v2.3.1 choices', () => {
+    // Legacy v2.3.0 persisted config: has revision.edit='E', does not have revision.easy
+    const legacy = { 'revision.edit': 'E', 'revision.forget': 'F' }
+    const migrated = migrateCustomShortcuts(legacy)
+    expect(migrated['revision.edit']).toBe('Ctrl+E')
+    expect(migrated['revision.forget']).toBe('F')
+
+    // User already on v2.3.1 who explicitly customized both shortcuts
+    const modern = { 'revision.edit': 'E', 'revision.easy': '4' }
+    const untouched = migrateCustomShortcuts(modern)
+    expect(untouched['revision.edit']).toBe('E')
+    expect(untouched['revision.easy']).toBe('4')
   })
 })
