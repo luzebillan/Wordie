@@ -232,3 +232,70 @@ export function syncCardTextInQueue(
 ): SessionCardItem[] {
   return queue.map(c => (c.id === cardId ? { ...c, front, back } : c))
 }
+
+/**
+ * Moves failed unreviewed cards (from currentIndex onward) to the end of the queue once,
+ * only when there is at least one non-failed, non-deferred card after them.
+ * Never mutates already-reviewed cards (0..currentIndex-1) so Undo remains invariant.
+ */
+export function applyDeferFailedToQueue(
+  queue: SessionCardItem[],
+  currentIndex: number,
+  failedSessionKeys: ReadonlySet<string>,
+  alreadyDeferredKeys: ReadonlySet<string>,
+  protectCurrentCard: boolean = false
+): {
+  nextQueue: SessionCardItem[]
+  newlyDeferredKeys: string[]
+} {
+  if (currentIndex >= queue.length || failedSessionKeys.size === 0) {
+    return { nextQueue: queue, newlyDeferredKeys: [] }
+  }
+
+  const done = queue.slice(0, currentIndex)
+  const remaining = queue.slice(currentIndex)
+
+  // Find the last index in remaining that is neither failed nor already deferred
+  let lastHealthyIdx = -1
+  for (let i = remaining.length - 1; i >= 0; i--) {
+    const key = remaining[i]._sessionKey
+    if (!failedSessionKeys.has(key) && !alreadyDeferredKeys.has(key)) {
+      lastHealthyIdx = i
+      break
+    }
+  }
+
+  if (lastHealthyIdx === -1) {
+    return { nextQueue: queue, newlyDeferredKeys: [] }
+  }
+
+  const kept: SessionCardItem[] = []
+  const deferred: SessionCardItem[] = []
+  const newlyDeferredKeys: string[] = []
+
+  for (let i = 0; i < remaining.length; i++) {
+    const item = remaining[i]
+    const key = item._sessionKey
+    const canDefer =
+      failedSessionKeys.has(key) &&
+      !alreadyDeferredKeys.has(key) &&
+      i < lastHealthyIdx &&
+      !(i === 0 && protectCurrentCard)
+
+    if (canDefer) {
+      deferred.push(item)
+      newlyDeferredKeys.push(key)
+    } else {
+      kept.push(item)
+    }
+  }
+
+  if (newlyDeferredKeys.length === 0) {
+    return { nextQueue: queue, newlyDeferredKeys: [] }
+  }
+
+  return {
+    nextQueue: [...done, ...kept, ...deferred],
+    newlyDeferredKeys
+  }
+}

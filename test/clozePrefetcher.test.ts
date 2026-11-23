@@ -262,4 +262,88 @@ describe('ClozePrefetcher', () => {
     expect(prefetcher.getEntry('k1')).toBeUndefined()
     expect(prefetcher.getEntry('k2')?.status).toBe('ready')
   })
+
+  it('keeps running through healthy cards during intermittent transient failures and retries failed ones on retryFailed()', async () => {
+    // Pattern: F, S, F, S, F, S, F, S, F, S, S -> 5 intermittent failures, never 3 consecutive
+    let shouldFailOdd = true
+    const fetcher = vi.fn(async (payload: { front: string }) => {
+      const id = Number(payload.front.replace('phrase ', ''))
+      if (shouldFailOdd && id % 2 === 1 && id <= 9) {
+        return { success: false, error: 'Sketch Engine API timeout or network error: TimeoutError' }
+      }
+      return { success: true, result: `ok ${payload.front}` }
+    })
+
+    const targets = Array.from({ length: 11 }, (_, idx) => makeTarget(idx + 1, `k${idx + 1}`))
+    const prefetcher = new ClozePrefetcher(fetcher, { pacingDelayMs: 0 })
+    prefetcher.syncTargets(targets, 'k1')
+    prefetcher.start()
+    await flushMicrotasks(50)
+
+    // Does NOT stall healthy cards 10 & 11 just because 5 intermittent failures occurred
+    expect(prefetcher.getProgress()).toMatchObject({
+      total: 11,
+      ready: 6,
+      failed: 5,
+      retryableFailed: 5,
+      terminalFailed: 0,
+      paused: false
+    })
+
+    // User clicks "Retry failed" -> retries only the 5 failed cards without re-fetching ready ones
+    shouldFailOdd = false
+    prefetcher.retryFailed()
+    await flushMicrotasks(50)
+
+    expect(prefetcher.getProgress()).toMatchObject({
+      total: 11,
+      ready: 11,
+      failed: 0,
+      retryableFailed: 0,
+      terminalFailed: 0,
+      paused: false
+    })
+    expect(fetcher).toHaveBeenCalledTimes(16) // 11 initial + 5 retried
+  })
+
+  it('tracks retryableFailed and terminalFailed separately and skips terminal cards on retryFailed()', async () => {
+    let failTransient = true
+    const fetcher = vi.fn(async (payload: { front: string }) => {
+      if (payload.front === 'phrase 1') {
+        return { success: false, error: 'Sketch Engine search succeeded, but 0 sentences matched this grammar.' }
+      }
+      if (payload.front === 'phrase 2' && failTransient) {
+        return { success: false, error: 'Sketch Engine API timeout or network error: TimeoutError' }
+      }
+      return { success: true, result: `ok ${payload.front}` }
+    })
+
+    const prefetcher = new ClozePrefetcher(fetcher, { pacingDelayMs: 0 })
+    prefetcher.syncTargets([makeTarget(1, 'k1'), makeTarget(2, 'k2'), makeTarget(3, 'k3')], 'k1')
+    prefetcher.start()
+    await flushMicrotasks(15)
+
+    expect(prefetcher.getProgress()).toMatchObject({
+      total: 3,
+      ready: 1,
+      failed: 2,
+      retryableFailed: 1,
+      terminalFailed: 1,
+      paused: false
+    })
+
+    failTransient = false
+    prefetcher.retryFailed()
+    await flushMicrotasks(15)
+
+    expect(prefetcher.getProgress()).toMatchObject({
+      total: 3,
+      ready: 2,
+      failed: 1,
+      retryableFailed: 0,
+      terminalFailed: 1,
+      paused: false
+    })
+    expect(fetcher).toHaveBeenCalledTimes(4) // 3 initial + 1 transient retry (terminal not retried)
+  })
 })

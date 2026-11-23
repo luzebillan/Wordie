@@ -6,6 +6,7 @@ import {
   applyUndoToQueue,
   applySkipToQueue,
   applyShuffleToQueue,
+  applyDeferFailedToQueue,
   syncCardTextInQueue
 } from '../src/utils/revisionSession'
 
@@ -318,5 +319,49 @@ describe('Revision Session State Machine', () => {
     expect(requeued.easeFactor).toBe(2.3)
     expect(requeued.lapses).toBe(1)
     expect(requeued.encounterCount).toBe(4)
+  })
+
+  it('TC-18: applyDeferFailedToQueue moves failed unreviewed cards to the tail while keeping done cards intact', () => {
+    const cards = [
+      { id: 1, front: '1', back: '1', type: 'Glossary' },
+      { id: 2, front: '2', back: '2', type: 'Useful Expressions' },
+      { id: 3, front: '3', back: '3', type: 'Daily Words' },
+      { id: 4, front: '4', back: '4', type: 'Useful Expressions' },
+      { id: 5, front: '5', back: '5', type: 'Glossary' }
+    ]
+    const { queue } = initSessionQueue(cards)
+    // Index 0 (id=1) is already done; index 1 (id=2) and index 3 (id=4) failed
+    const failedKeys = new Set([queue[1]._sessionKey, queue[3]._sessionKey])
+    const deferred = new Set<string>()
+
+    const res = applyDeferFailedToQueue(queue, 1, failedKeys, deferred, false)
+    expect(res.newlyDeferredKeys).toEqual([queue[1]._sessionKey, queue[3]._sessionKey])
+    expect(res.nextQueue.map(c => c.id)).toEqual([1, 3, 5, 2, 4])
+  })
+
+  it('TC-19: applyDeferFailedToQueue protects active card during editing/flipped answer and prevents infinite loops', () => {
+    const cards = [
+      { id: 1, front: '1', back: '1', type: 'Useful Expressions' },
+      { id: 2, front: '2', back: '2', type: 'Useful Expressions' },
+      { id: 3, front: '3', back: '3', type: 'Glossary' }
+    ]
+    const { queue } = initSessionQueue(cards)
+    const failedKeys = new Set([queue[0]._sessionKey, queue[1]._sessionKey])
+    const deferred = new Set<string>()
+
+    // When active card is protected (showAnswer or editing), only background failed card moves
+    const protectedRes = applyDeferFailedToQueue(queue, 0, failedKeys, deferred, true)
+    expect(protectedRes.newlyDeferredKeys).toEqual([queue[1]._sessionKey])
+    expect(protectedRes.nextQueue.map(c => c.id)).toEqual([1, 3, 2])
+
+    // Once all remaining cards are failed or already deferred, no further moves occur (no loop)
+    const twoCards = initSessionQueue([
+      { id: 10, front: '10', back: '10', type: 'Useful Expressions' },
+      { id: 20, front: '20', back: '20', type: 'Useful Expressions' }
+    ]).queue
+    const allFailed = new Set([twoCards[0]._sessionKey, twoCards[1]._sessionKey])
+    const noLoopRes = applyDeferFailedToQueue(twoCards, 0, allFailed, new Set(), false)
+    expect(noLoopRes.newlyDeferredKeys).toEqual([])
+    expect(noLoopRes.nextQueue).toBe(twoCards)
   })
 })

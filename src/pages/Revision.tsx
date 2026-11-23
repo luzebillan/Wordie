@@ -10,10 +10,10 @@ import {
   applyUndoToQueue,
   applySkipToQueue,
   applyShuffleToQueue,
+  applyDeferFailedToQueue,
   syncCardTextInQueue,
   createSessionItem
 } from '../utils/revisionSession'
-import { previewAnkiIntervals, type CardState } from '../utils/ankiSrs'
 import { ClozePrefetcher, type PrefetchTarget } from '../utils/clozePrefetcher'
 import { useShortcuts } from '../hooks/useShortcuts'
 import { TaxonomyTagBadge } from '../components/TaxonomyTagBadge'
@@ -98,9 +98,10 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
       window.ipcRenderer.generateRevisionCloze(payload)
     )
   }
-  const [, setPrefetchTick] = useState(0)
+  const [prefetchTick, setPrefetchTick] = useState(0)
   const waitedSessionKeyRef = useRef<string | null>(null)
   const chimePlayedKeyRef = useRef<string | null>(null)
+  const autoDeferredKeysRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const prefetcher = prefetcherRef.current
@@ -283,6 +284,8 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     total: 0,
     ready: 0,
     failed: 0,
+    retryableFailed: 0,
+    terminalFailed: 0,
     loading: 0,
     paused: false,
     pauseReason: null,
@@ -366,16 +369,42 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
     }
   }, [isActive, currentCard?._sessionKey, activeClozeEntry?.status])
 
-  const intervalPreviews = useMemo(() => {
-    if (!currentCard) return null
-    return previewAnkiIntervals({
-      state: (currentCard.state ?? 0) as CardState,
-      interval: currentCard.interval ?? 0,
-      easeFactor: currentCard.easeFactor ?? 2.5,
-      lapses: currentCard.lapses ?? 0,
-      repetitions: currentCard.repetitions ?? 0
-    })
-  }, [currentCard?._sessionKey, currentCard?.state, currentCard?.interval, currentCard?.easeFactor])
+  // Automatically defer failed Useful Expressions cards to the end of the queue
+  useEffect(() => {
+    if (specificCardId || currentIndex >= sessionQueue.length) return
+    const prefetcher = prefetcherRef.current
+    if (!prefetcher) return
+
+    const failedKeys = new Set<string>()
+    for (let i = currentIndex; i < sessionQueue.length; i++) {
+      const item = sessionQueue[i]
+      if (item.type !== 'Useful Expressions') continue
+      if (prefetcher.getEntry(item._sessionKey)?.status === 'error') {
+        failedKeys.add(item._sessionKey)
+      }
+    }
+    if (failedKeys.size === 0) return
+
+    const { nextQueue, newlyDeferredKeys } = applyDeferFailedToQueue(
+      sessionQueue,
+      currentIndex,
+      failedKeys,
+      autoDeferredKeysRef.current,
+      showAnswer || isEditingMode
+    )
+
+    if (newlyDeferredKeys.length > 0) {
+      for (const key of newlyDeferredKeys) {
+        autoDeferredKeysRef.current.add(key)
+      }
+      if (currentCard && newlyDeferredKeys.includes(currentCard._sessionKey)) {
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: { message: 'Cloze failed — moved to end of queue' }
+        }))
+      }
+      setSessionQueue(nextQueue)
+    }
+  }, [prefetchTick, sessionQueue, currentIndex, specificCardId, showAnswer, isEditingMode, currentCard])
 
   const handleRetryCloze = () => {
     if (!currentCard || currentCard.type !== 'Useful Expressions') return
@@ -788,7 +817,12 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
                         ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-300 border-purple-200 dark:border-purple-800/40'
                         : 'bg-gray-50 dark:bg-gray-800/60 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700'
                   }`}
-                  title={prefetchProgress.pauseReason || 'Background Useful Expressions cloze pre-generation'}
+                  title={
+                    prefetchProgress.pauseReason ||
+                    (prefetchProgress.failed > 0
+                      ? `Cloze pre-generation: ${prefetchProgress.retryableFailed} retryable, ${prefetchProgress.terminalFailed} no corpus match`
+                      : 'Background Useful Expressions cloze pre-generation')
+                  }
                 >
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
@@ -805,12 +839,14 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
                     Cloze {prefetchProgress.ready}/{prefetchProgress.total}
                     {prefetchProgress.failed > 0 ? ` (${prefetchProgress.failed} failed)` : ''}
                   </span>
-                  {prefetchProgress.paused && (
+                  {(prefetchProgress.paused ||
+                    prefetchProgress.retryableFailed >= 5 ||
+                    (prefetchProgress.retryableFailed > 0 && prefetchProgress.ready + prefetchProgress.failed >= prefetchProgress.total)) && (
                     <button
                       onClick={handleResumePrefetch}
                       className="ml-1 underline font-semibold hover:text-amber-900 dark:hover:text-amber-100"
                     >
-                      Resume
+                      {prefetchProgress.paused ? 'Resume' : 'Retry failed'}
                     </button>
                   )}
                 </span>
@@ -953,50 +989,34 @@ export const Revision: React.FC<RevisionProps> = ({ specificCardId, isActive = t
             <div className="grid grid-cols-4 gap-3 w-full max-w-2xl animate-in slide-in-from-bottom-4 duration-300">
               <button
                 onClick={() => handleReview('again')}
-                className="px-4 py-3 bg-red-50 dark:bg-red-900/15 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-900/40 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
+                className="px-4 py-3.5 bg-red-50 dark:bg-red-900/15 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-900/40 rounded-2xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <span className="font-bold text-sm">
-                  Forgot <span className="text-xs font-medium opacity-75">({getShortcutDisplay('revision.forget')})</span>
-                </span>
-                {intervalPreviews && (
-                  <span className="text-[11px] font-mono opacity-75">{intervalPreviews[1]}</span>
-                )}
+                <span className="font-bold text-lg">Forgot</span>
+                <span className="text-xs font-medium opacity-70">({getShortcutDisplay('revision.forget')})</span>
               </button>
 
               <button
                 onClick={() => handleReview('hard')}
-                className="px-4 py-3 bg-amber-50 dark:bg-amber-900/15 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900/40 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
+                className="px-4 py-3.5 bg-amber-50 dark:bg-amber-900/15 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900/40 rounded-2xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <span className="font-bold text-sm">
-                  Hard <span className="text-xs font-medium opacity-75">({getShortcutDisplay('revision.hard')})</span>
-                </span>
-                {intervalPreviews && (
-                  <span className="text-[11px] font-mono opacity-75">{intervalPreviews[2]}</span>
-                )}
+                <span className="font-bold text-lg">Hard</span>
+                <span className="text-xs font-medium opacity-70">({getShortcutDisplay('revision.hard')})</span>
               </button>
 
               <button
                 onClick={() => handleReview('good')}
-                className="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white border border-blue-600/30 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
+                className="px-4 py-3.5 bg-blue-500 hover:bg-blue-600 text-white border border-blue-600/30 rounded-2xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <span className="font-bold text-sm">
-                  Good <span className="text-xs font-medium opacity-85">({getShortcutDisplay('revision.flip')})</span>
-                </span>
-                {intervalPreviews && (
-                  <span className="text-[11px] font-mono opacity-85">{intervalPreviews[3]}</span>
-                )}
+                <span className="font-bold text-lg">Good</span>
+                <span className="text-xs font-medium opacity-80">({getShortcutDisplay('revision.flip')})</span>
               </button>
 
               <button
                 onClick={() => handleReview('easy')}
-                className="px-4 py-3 bg-emerald-50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl transition-colors flex flex-col items-center justify-center gap-0.5 shadow-sm"
+                className="px-4 py-3.5 bg-emerald-50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <span className="font-bold text-sm">
-                  Easy <span className="text-xs font-medium opacity-75">({getShortcutDisplay('revision.easy')})</span>
-                </span>
-                {intervalPreviews && (
-                  <span className="text-[11px] font-mono opacity-75">{intervalPreviews[4]}</span>
-                )}
+                <span className="font-bold text-lg">Easy</span>
+                <span className="text-xs font-medium opacity-70">({getShortcutDisplay('revision.easy')})</span>
               </button>
             </div>
           )}

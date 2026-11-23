@@ -22,6 +22,8 @@ export interface PrefetchProgress {
   total: number
   ready: number
   failed: number
+  retryableFailed: number
+  terminalFailed: number
   loading: number
   paused: boolean
   pauseReason: string | null
@@ -78,7 +80,7 @@ export class ClozePrefetcher {
 
   constructor(fetcher: ClozeFetcher, options: ClozePrefetcherOptions = {}) {
     this.fetcher = fetcher
-    this.pacingDelayMs = options.pacingDelayMs ?? 150
+    this.pacingDelayMs = options.pacingDelayMs ?? 650
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? 3
   }
 
@@ -103,18 +105,28 @@ export class ClozePrefetcher {
   getProgress(): PrefetchProgress {
     let ready = 0
     let failed = 0
+    let retryableFailed = 0
+    let terminalFailed = 0
     let loading = 0
     for (const target of this.orderedTargets) {
       const entry = this.entries.get(target.sessionKey)
       if (!entry) continue
       if (entry.status === 'ready') ready += 1
-      else if (entry.status === 'error') failed += 1
-      else if (entry.status === 'loading') loading += 1
+      else if (entry.status === 'error') {
+        failed += 1
+        if (entry.errorKind === 'terminal') {
+          terminalFailed += 1
+        } else {
+          retryableFailed += 1
+        }
+      } else if (entry.status === 'loading') loading += 1
     }
     return {
       total: this.orderedTargets.length,
       ready,
       failed,
+      retryableFailed,
+      terminalFailed,
       loading,
       paused: this.paused,
       pauseReason: this.pauseReason,
@@ -200,18 +212,26 @@ export class ClozePrefetcher {
   }
 
   /**
-   * Resumes background prefetching after a circuit-breaker pause.
+   * Resumes background prefetching after a circuit-breaker pause and retries
+   * all non-terminal failed targets.
    */
   resume(): void {
+    this.retryFailed()
+  }
+
+  /**
+   * Re-queues all non-terminal (transient/systemic) failed targets for retry
+   * without interrupting healthy cards, clearing any pause state if active.
+   */
+  retryFailed(): void {
     if (this.disposed) return
     this.paused = false
     this.pauseReason = null
     this.consecutiveFailures = 0
 
-    // Clear systemic/transient failures for remaining targets so they can be retried
     for (const target of this.orderedTargets) {
       const entry = this.entries.get(target.sessionKey)
-      if (entry && entry.status === 'error' && entry.errorKind !== 'terminal') {
+      if (entry && entry.status === 'error' && entry.errorKind !== 'terminal' && !this.inFlight.has(target.sessionKey)) {
         this.entries.delete(target.sessionKey)
       }
     }

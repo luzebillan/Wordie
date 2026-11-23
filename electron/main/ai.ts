@@ -1271,7 +1271,7 @@ export async function generateRevisionCloze(
     try {
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${sketchApiKey}`, 'Connection': 'close' },
-        signal: AbortSignal.timeout(25000)
+        signal: AbortSignal.timeout(60000)
       })
       
       if (response.status === 429) {
